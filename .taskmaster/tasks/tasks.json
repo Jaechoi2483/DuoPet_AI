@@ -1,0 +1,315 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Setup FastAPI Project Structure",
+        "description": "Initialize the FastAPI project with the required directory structure, dependencies, and configuration files.",
+        "details": "Create a new FastAPI 3.0+ project with the following structure:\n- app/\n  - api/\n    - v1/\n      - endpoints/\n  - core/\n    - config.py\n    - logging.py\n  - models/\n  - services/\n  - utils/\n- tests/\n- Dockerfile\n- docker-compose.yml\n- requirements.txt\n\nImplement configuration management for different environments (dev, test, prod) using Pydantic settings. Setup basic CORS, security headers, and API documentation with Swagger/OpenAPI.",
+        "testStrategy": "Verify project structure is correct. Test that the application starts without errors. Validate that configuration can be loaded from environment variables. Ensure Swagger documentation is accessible.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 2,
+        "title": "Implement Standard API Response Format",
+        "description": "Create a standardized JSON response format for all API endpoints with success, data, and error fields.",
+        "details": "Develop response models using Pydantic with the following structure:\n```python\nfrom pydantic import BaseModel\nfrom typing import Any, Optional\n\nclass StandardResponse(BaseModel):\n    success: bool\n    data: Optional[Any] = None\n    error: Optional[str] = None\n```\n\nImplement middleware or dependency to ensure all API responses follow this format. Create utility functions for generating success and error responses.",
+        "testStrategy": "Write unit tests to verify that success responses contain the correct structure. Test error handling to ensure errors are properly formatted. Validate that all endpoints use the standard format.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 3,
+        "title": "Setup Logging and Monitoring System",
+        "description": "Implement a structured logging system and performance monitoring for the API services.",
+        "details": "Use Python's logging module with a structured JSON formatter. Implement middleware to log request/response details and performance metrics. Setup monitoring for API usage, response times, and error rates. Configure log rotation and different log levels based on environment.\n\n```python\nimport logging\nimport json\nfrom fastapi import Request, Response\nimport time\n\nclass JSONFormatter(logging.Formatter):\n    def format(self, record):\n        log_record = {\n            'timestamp': self.formatTime(record),\n            'level': record.levelname,\n            'message': record.getMessage(),\n            'module': record.module\n        }\n        if hasattr(record, 'request_id'):\n            log_record['request_id'] = record.request_id\n        return json.dumps(log_record)\n\nasync def logging_middleware(request: Request, call_next):\n    start_time = time.time()\n    response = await call_next(request)\n    process_time = time.time() - start_time\n    response.headers['X-Process-Time'] = str(process_time)\n    logging.info(f\"Processed request in {process_time:.4f} seconds\")\n    return response\n```",
+        "testStrategy": "Verify logs are correctly formatted and contain all required fields. Test that performance metrics are accurately recorded. Ensure log levels work correctly in different environments.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 4,
+        "title": "Implement API Authentication System",
+        "description": "Create an API key-based authentication system for securing all endpoints.",
+        "details": "Implement API key validation using FastAPI dependencies. Store API keys securely in the database with hashing. Create middleware to validate API keys on protected routes. Implement rate limiting to prevent abuse.\n\n```python\nfrom fastapi import Depends, HTTPException, Security\nfrom fastapi.security.api_key import APIKeyHeader\nfrom starlette.status import HTTP_403_FORBIDDEN\n\nAPI_KEY_NAME = \"X-API-Key\"\napi_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)\n\nasync def get_api_key(api_key_header: str = Security(api_key_header)):\n    if api_key_header is None:\n        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=\"API key is missing\")\n    # Validate API key against database\n    if not is_valid_api_key(api_key_header):\n        raise HTTPException(status_code=HTTP_403_FORBIDDEN, detail=\"Invalid API key\")\n    return api_key_header\n```",
+        "testStrategy": "Test authentication with valid and invalid API keys. Verify that protected routes reject requests without valid keys. Test rate limiting functionality. Ensure API key validation is performant.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "done",
+        "subtasks": []
+      },
+      {
+        "id": 5,
+        "title": "Setup Model Version Management System",
+        "description": "Implement a system for managing AI model versions and weights.",
+        "details": "Create a model registry that tracks model versions, metadata, and performance metrics. Implement a system to load models from configurable storage locations. Support automatic detection of GPU/CPU environments and optimize model loading accordingly. Implement caching for frequently used models.\n\n```python\nfrom enum import Enum\nfrom typing import Dict, Any, Optional\nimport torch\n\nclass ModelType(Enum):\n    FACE_RECOGNITION = \"face_recognition\"\n    DISEASE_DETECTION = \"disease_detection\"\n    BEHAVIOR_ANALYSIS = \"behavior_analysis\"\n    # Add other model types\n\nclass ModelRegistry:\n    def __init__(self):\n        self.models: Dict[str, Any] = {}\n        self.model_configs: Dict[str, Dict] = {}\n        self.device = \"cuda\" if torch.cuda.is_available() else \"cpu\"\n    \n    def register_model(self, model_type: ModelType, version: str, model_path: str, metadata: Optional[Dict] = None):\n        # Register model configuration\n        pass\n        \n    def load_model(self, model_type: ModelType, version: Optional[str] = None):\n        # Load model from storage and cache it\n        pass\n```",
+        "testStrategy": "Test model loading with different versions. Verify GPU/CPU detection works correctly. Test model caching performance. Ensure models can be correctly versioned and tracked.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 6,
+        "title": "Implement Face Recognition Login Service",
+        "description": "Develop the face recognition login service using OpenCV and DeepFace.",
+        "details": "Create a service that handles face detection, alignment, and recognition using OpenCV and DeepFace. Implement face embedding extraction and comparison with stored embeddings. Ensure 95% recognition accuracy through proper preprocessing and threshold tuning.\n\n```python\nimport cv2\nfrom deepface import DeepFace\nimport numpy as np\n\nclass FaceRecognitionService:\n    def __init__(self, model_registry):\n        self.model = model_registry.load_model(ModelType.FACE_RECOGNITION)\n        self.recognition_threshold = 0.6  # Tune for 95% accuracy\n    \n    def preprocess_image(self, image_data):\n        # Convert to numpy array, handle different formats\n        # Apply preprocessing steps\n        return processed_image\n    \n    def extract_face_embedding(self, image):\n        # Detect face using OpenCV\n        # Extract embedding using DeepFace\n        return embedding\n    \n    def compare_embeddings(self, embedding1, embedding2):\n        # Calculate similarity score\n        similarity = np.dot(embedding1, embedding2) / (np.linalg.norm(embedding1) * np.linalg.norm(embedding2))\n        return similarity > self.recognition_threshold\n    \n    async def verify_user(self, image_data, user_id):\n        # Get stored embedding for user\n        # Compare with current image\n        # Return verification result\n        pass\n```",
+        "testStrategy": "Test face detection with various image qualities and lighting conditions. Validate recognition accuracy using a test dataset. Measure false positive and false negative rates. Test with different face angles and expressions.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 7,
+        "title": "Create Face Login API Endpoint",
+        "description": "Implement the REST API endpoint for face login functionality.",
+        "details": "Create the POST /api/v1/face-login endpoint that accepts face image data and returns authentication results. Handle image upload in various formats (base64, multipart). Implement proper validation and error handling. Ensure secure processing of biometric data.\n\n```python\nfrom fastapi import APIRouter, Depends, File, UploadFile, Form\nfrom app.services.face_recognition import FaceRecognitionService\nfrom app.core.auth import get_api_key\n\nrouter = APIRouter()\n\n@router.post(\"/face-login\", response_model=StandardResponse)\nasync def face_login(\n    file: UploadFile = File(...),\n    user_id: str = Form(...),\n    api_key: str = Depends(get_api_key),\n    face_service: FaceRecognitionService = Depends()\n):\n    try:\n        image_data = await file.read()\n        verification_result = await face_service.verify_user(image_data, user_id)\n        return {\n            \"success\": True,\n            \"data\": {\"authenticated\": verification_result, \"confidence\": verification_result.confidence}\n        }\n    except Exception as e:\n        return {\"success\": False, \"error\": str(e)}\n```",
+        "testStrategy": "Test endpoint with valid and invalid image formats. Verify authentication works correctly with known faces. Test error handling with malformed requests. Measure response time under different loads.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          4,
+          6
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 8,
+        "title": "Implement GPT-based Chatbot Service",
+        "description": "Develop the AI chatbot service using KeyBERT for keyword extraction and OpenAI GPT API for responses.",
+        "details": "Create a service that extracts keywords from user queries using KeyBERT, then generates contextually relevant responses using OpenAI's GPT API. Implement conversation context management to maintain coherent multi-turn dialogues. Focus on pet-related queries and responses.\n\n```python\nfrom keybert import KeyBERT\nimport openai\nfrom typing import List, Dict\n\nclass ChatbotService:\n    def __init__(self, config):\n        self.keybert_model = KeyBERT()\n        openai.api_key = config.OPENAI_API_KEY\n        self.conversation_history = {}\n        self.max_history_length = 5\n    \n    def extract_keywords(self, query: str) -> List[str]:\n        keywords = self.keybert_model.extract_keywords(query, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=3)\n        return [kw for kw, _ in keywords]\n    \n    def generate_response(self, user_id: str, query: str) -> str:\n        # Extract keywords\n        keywords = self.extract_keywords(query)\n        \n        # Get conversation history\n        history = self.conversation_history.get(user_id, [])\n        \n        # Prepare prompt with context and pet focus\n        prompt = f\"As a pet care assistant, respond to this query about pets: {query}\\n\\nRelevant keywords: {', '.join(keywords)}\"\n        \n        # Generate response using OpenAI GPT\n        response = openai.Completion.create(\n            model=\"gpt-3.5-turbo\",\n            messages=history + [{\"role\": \"user\", \"content\": prompt}],\n            max_tokens=150\n        )\n        \n        # Update conversation history\n        history.append({\"role\": \"user\", \"content\": query})\n        history.append({\"role\": \"assistant\", \"content\": response.choices[0].message.content})\n        if len(history) > self.max_history_length * 2:\n            history = history[-self.max_history_length * 2:]\n        self.conversation_history[user_id] = history\n        \n        return response.choices[0].message.content\n```",
+        "testStrategy": "Test keyword extraction with various pet-related queries. Verify response relevance and accuracy. Test conversation context maintenance across multiple turns. Measure response generation time and API usage efficiency.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 9,
+        "title": "Create Chatbot API Endpoint",
+        "description": "Implement the REST API endpoint for the GPT-based chatbot functionality.",
+        "details": "Create the POST /api/v1/chatbot endpoint that accepts user queries and returns AI-generated responses. Implement user identification for conversation context tracking. Handle rate limiting and token usage monitoring for the OpenAI API.\n\n```python\nfrom fastapi import APIRouter, Depends, Body\nfrom pydantic import BaseModel\nfrom app.services.chatbot import ChatbotService\nfrom app.core.auth import get_api_key\n\nclass ChatbotRequest(BaseModel):\n    user_id: str\n    query: str\n\nrouter = APIRouter()\n\n@router.post(\"/chatbot\", response_model=StandardResponse)\nasync def chatbot_query(\n    request: ChatbotRequest = Body(...),\n    api_key: str = Depends(get_api_key),\n    chatbot_service: ChatbotService = Depends()\n):\n    try:\n        response = await chatbot_service.generate_response(request.user_id, request.query)\n        keywords = chatbot_service.extract_keywords(request.query)\n        return {\n            \"success\": True,\n            \"data\": {\"response\": response, \"extracted_keywords\": keywords}\n        }\n    except Exception as e:\n        return {\"success\": False, \"error\": str(e)}\n```",
+        "testStrategy": "Test endpoint with various queries and verify response quality. Test conversation context across multiple requests. Verify error handling with malformed requests. Test rate limiting functionality.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          4,
+          8
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 10,
+        "title": "Implement YouTube Video Recommendation Service",
+        "description": "Develop the service for recommending pet-related YouTube videos based on keyword analysis.",
+        "details": "Create a service that uses KeyBERT for keyword extraction from user queries or pet profiles, then uses the YouTube API to search for and filter relevant videos. Implement a recommendation algorithm that considers video quality, relevance, and engagement metrics.\n\n```python\nfrom keybert import KeyBERT\nfrom googleapiclient.discovery import build\nfrom typing import List, Dict\n\nclass YouTubeRecommendationService:\n    def __init__(self, config):\n        self.keybert_model = KeyBERT()\n        self.youtube_api = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)\n    \n    def extract_keywords(self, text: str) -> List[str]:\n        keywords = self.keybert_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=5)\n        return [kw for kw, _ in keywords]\n    \n    def search_videos(self, keywords: List[str], max_results: int = 10) -> List[Dict]:\n        # Combine keywords for search\n        search_query = ' '.join(keywords) + ' pets'\n        \n        # Call YouTube API\n        search_response = self.youtube_api.search().list(\n            q=search_query,\n            part='snippet',\n            maxResults=max_results,\n            type='video'\n        ).execute()\n        \n        # Extract video information\n        videos = []\n        for item in search_response.get('items', []):\n            video_id = item['id']['videoId']\n            # Get video statistics\n            video_stats = self.youtube_api.videos().list(\n                part='statistics',\n                id=video_id\n            ).execute()\n            \n            # Extract relevant information\n            video_info = {\n                'id': video_id,\n                'title': item['snippet']['title'],\n                'description': item['snippet']['description'],\n                'thumbnail': item['snippet']['thumbnails']['high']['url'],\n                'channel': item['snippet']['channelTitle'],\n                'published_at': item['snippet']['publishedAt'],\n                'view_count': int(video_stats['items'][0]['statistics'].get('viewCount', 0)),\n                'like_count': int(video_stats['items'][0]['statistics'].get('likeCount', 0))\n            }\n            videos.append(video_info)\n        \n        # Filter pet-related videos\n        filtered_videos = self.filter_pet_videos(videos)\n        \n        # Rank videos by relevance and engagement\n        ranked_videos = self.rank_videos(filtered_videos, keywords)\n        \n        return ranked_videos\n    \n    def filter_pet_videos(self, videos: List[Dict]) -> List[Dict]:\n        # Filter videos to ensure they're pet-related\n        pet_keywords = ['pet', 'dog', 'cat', 'animal', 'veterinary', 'puppy', 'kitten']\n        filtered = []\n        for video in videos:\n            text = video['title'].lower() + ' ' + video['description'].lower()\n            if any(kw in text for kw in pet_keywords):\n                filtered.append(video)\n        return filtered\n    \n    def rank_videos(self, videos: List[Dict], keywords: List[str]) -> List[Dict]:\n        # Score videos based on relevance and engagement\n        for video in videos:\n            relevance_score = sum(1 for kw in keywords if kw.lower() in video['title'].lower() or kw.lower() in video['description'].lower())\n            engagement_score = (video['view_count'] * 0.7 + video['like_count'] * 0.3) / 10000\n            video['score'] = relevance_score * 0.6 + engagement_score * 0.4\n        \n        # Sort by score\n        return sorted(videos, key=lambda x: x['score'], reverse=True)\n```",
+        "testStrategy": "Test keyword extraction with various pet-related inputs. Verify YouTube API integration and error handling. Test video filtering to ensure only pet-related content is recommended. Evaluate recommendation quality with different inputs.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 11,
+        "title": "Create YouTube Recommendation API Endpoint",
+        "description": "Implement the REST API endpoint for YouTube video recommendations.",
+        "details": "Create the POST /api/v1/video-recommend endpoint that accepts user queries or pet profiles and returns recommended YouTube videos. Implement caching to reduce API calls to YouTube. Handle YouTube API quota limitations and errors.\n\n```python\nfrom fastapi import APIRouter, Depends, Body\nfrom pydantic import BaseModel\nfrom typing import List, Optional\nfrom app.services.youtube_recommendation import YouTubeRecommendationService\nfrom app.core.auth import get_api_key\n\nclass VideoRecommendRequest(BaseModel):\n    query: Optional[str] = None\n    pet_profile: Optional[str] = None\n    max_results: int = 5\n\nclass VideoResponse(BaseModel):\n    id: str\n    title: str\n    thumbnail: str\n    channel: str\n    view_count: int\n    score: float\n\nrouter = APIRouter()\n\n@router.post(\"/video-recommend\", response_model=StandardResponse)\nasync def recommend_videos(\n    request: VideoRecommendRequest = Body(...),\n    api_key: str = Depends(get_api_key),\n    recommendation_service: YouTubeRecommendationService = Depends()\n):\n    try:\n        # Use query or pet profile for keyword extraction\n        text = request.query if request.query else request.pet_profile\n        if not text:\n            return {\"success\": False, \"error\": \"Either query or pet_profile must be provided\"}\n        \n        keywords = recommendation_service.extract_keywords(text)\n        videos = recommendation_service.search_videos(keywords, request.max_results)\n        \n        # Format response\n        video_responses = [\n            VideoResponse(\n                id=video['id'],\n                title=video['title'],\n                thumbnail=video['thumbnail'],\n                channel=video['channel'],\n                view_count=video['view_count'],\n                score=video['score']\n            ) for video in videos\n        ]\n        \n        return {\n            \"success\": True,\n            \"data\": {\"videos\": video_responses, \"keywords\": keywords}\n        }\n    except Exception as e:\n        return {\"success\": False, \"error\": str(e)}\n```",
+        "testStrategy": "Test endpoint with various queries and verify recommendation quality. Test caching functionality and performance. Verify error handling with YouTube API failures. Test with different max_results values.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          4,
+          10
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 12,
+        "title": "Implement Image-based Health Diagnosis Service",
+        "description": "Develop the service for diagnosing pet health issues from images using YOLOv12 and EfficientNet.",
+        "details": "Create a service that uses YOLOv12 for detecting disease-affected areas in pet images and EfficientNet for classifying the type of disease. Focus on skin diseases, eye conditions, and other visible health issues. Include confidence scores with diagnoses.\n\n```python\nimport torch\nimport numpy as np\nimport cv2\nfrom typing import Dict, List, Tuple\n\nclass HealthDiagnosisService:\n    def __init__(self, model_registry):\n        self.detection_model = model_registry.load_model(ModelType.DISEASE_DETECTION)\n        self.classification_model = model_registry.load_model(ModelType.DISEASE_CLASSIFICATION)\n        self.device = \"cuda\" if torch.cuda.is_available() else \"cpu\"\n        self.disease_classes = [\n            \"healthy\", \"skin_infection\", \"dermatitis\", \"ear_infection\", \n            \"eye_infection\", \"conjunctivitis\", \"wound\", \"tumor\"\n        ]\n    \n    def preprocess_image(self, image_data):\n        # Convert to numpy array, resize, normalize\n        nparr = np.frombuffer(image_data, np.uint8)\n        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)\n        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)\n        img = cv2.resize(img, (640, 640))\n        img = img / 255.0  # Normalize\n        return img\n    \n    def detect_disease_areas(self, image) -> List[Dict]:\n        # Convert image to tensor and move to device\n        img_tensor = torch.from_numpy(image).permute(2, 0, 1).float().unsqueeze(0).to(self.device)\n        \n        # Run YOLOv12 detection\n        with torch.no_grad():\n            detections = self.detection_model(img_tensor)\n        \n        # Process detections\n        results = []\n        for detection in detections[0]:\n            if detection[4] > 0.5:  # Confidence threshold\n                x1, y1, x2, y2 = detection[0:4].cpu().numpy()\n                confidence = float(detection[4].cpu().numpy())\n                results.append({\n                    \"bbox\": [int(x1), int(y1), int(x2), int(y2)],\n                    \"confidence\": confidence\n                })\n        \n        return results\n    \n    def classify_disease(self, image, bbox) -> Tuple[str, float]:\n        # Crop the region of interest\n        x1, y1, x2, y2 = bbox\n        roi = image[y1:y2, x1:x2]\n        roi = cv2.resize(roi, (224, 224))  # EfficientNet input size\n        \n        # Convert to tensor and classify\n        roi_tensor = torch.from_numpy(roi).permute(2, 0, 1).float().unsqueeze(0).to(self.device)\n        \n        with torch.no_grad():\n            outputs = self.classification_model(roi_tensor)\n            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()\n        \n        # Get predicted class and confidence\n        class_idx = np.argmax(probs)\n        confidence = float(probs[class_idx])\n        disease_name = self.disease_classes[class_idx]\n        \n        return disease_name, confidence\n    \n    async def diagnose(self, image_data) -> Dict:\n        # Preprocess image\n        image = self.preprocess_image(image_data)\n        \n        # Detect disease areas\n        detections = self.detect_disease_areas(image)\n        \n        # Classify each detected area\n        diagnoses = []\n        for detection in detections:\n            disease_name, confidence = self.classify_disease(image, detection[\"bbox\"])\n            diagnoses.append({\n                \"disease\": disease_name,\n                \"confidence\": confidence,\n                \"location\": detection[\"bbox\"]\n            })\n        \n        # If no diseases detected\n        if not diagnoses:\n            return {\"healthy\": True, \"diagnoses\": []}\n        \n        return {\"healthy\": False, \"diagnoses\": diagnoses}\n```",
+        "testStrategy": "Test disease detection with various pet images. Verify classification accuracy with known disease images. Test with different image qualities and lighting conditions. Measure false positive and false negative rates.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 13,
+        "title": "Create Health Diagnosis API Endpoint",
+        "description": "Implement the REST API endpoint for image-based pet health diagnosis.",
+        "details": "Create the POST /api/v1/health-diagnose endpoint that accepts pet images and returns health diagnosis results. Handle image upload in various formats. Implement proper validation and error handling for image processing.\n\n```python\nfrom fastapi import APIRouter, Depends, File, UploadFile\nfrom app.services.health_diagnosis import HealthDiagnosisService\nfrom app.core.auth import get_api_key\n\nrouter = APIRouter()\n\n@router.post(\"/health-diagnose\", response_model=StandardResponse)\nasync def diagnose_health(\n    file: UploadFile = File(...),\n    api_key: str = Depends(get_api_key),\n    diagnosis_service: HealthDiagnosisService = Depends()\n):\n    try:\n        # Validate image format\n        if file.content_type not in [\"image/jpeg\", \"image/png\", \"image/jpg\"]:\n            return {\"success\": False, \"error\": \"Unsupported image format. Please upload JPEG or PNG.\"}\n        \n        # Read image data\n        image_data = await file.read()\n        \n        # Process diagnosis\n        diagnosis_result = await diagnosis_service.diagnose(image_data)\n        \n        return {\n            \"success\": True,\n            \"data\": diagnosis_result\n        }\n    except Exception as e:\n        return {\"success\": False, \"error\": str(e)}\n```",
+        "testStrategy": "Test endpoint with various image formats and sizes. Verify diagnosis results with test images of known conditions. Test error handling with invalid images. Measure response time under different loads.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          4,
+          12
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 14,
+        "title": "Implement Video-based Behavior Analysis Service",
+        "description": "Develop the service for analyzing pet behavior from video using YOLOv12, MediaPipe, and LSTM.",
+        "details": "Create a service that uses YOLOv12 for pet detection in video frames, MediaPipe for pose estimation, and LSTM for analyzing behavior patterns over time. Implement detection of abnormal behaviors that might indicate health issues.\n\n```python\nimport torch\nimport numpy as np\nimport cv2\nimport mediapipe as mp\nfrom typing import Dict, List, Any\n\nclass BehaviorAnalysisService:\n    def __init__(self, model_registry):\n        self.detection_model = model_registry.load_model(ModelType.PET_DETECTION)\n        self.pose_model = mp.solutions.pose\n        self.lstm_model = model_registry.load_model(ModelType.BEHAVIOR_LSTM)\n        self.device = \"cuda\" if torch.cuda.is_available() else \"cpu\"\n        self.behavior_classes = [\n            \"normal\", \"aggressive\", \"anxious\", \"lethargic\", \"pain\", \"seizure\"\n        ]\n    \n    def process_video(self, video_data):\n        # Save video data to temporary file\n        temp_path = \"/tmp/temp_video.mp4\"\n        with open(temp_path, \"wb\") as f:\n            f.write(video_data)\n        \n        # Open video file\n        cap = cv2.VideoCapture(temp_path)\n        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))\n        fps = cap.get(cv2.CAP_PROP_FPS)\n        \n        # Sample frames (process every 5th frame to reduce computation)\n        frames = []\n        frame_idx = 0\n        while cap.isOpened():\n            ret, frame = cap.read()\n            if not ret:\n                break\n            \n            if frame_idx % 5 == 0:\n                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)\n                frames.append(frame)\n            \n            frame_idx += 1\n        \n        cap.release()\n        return frames, fps\n    \n    def detect_pet(self, frame):\n        # Resize and normalize frame\n        frame_resized = cv2.resize(frame, (640, 640))\n        frame_norm = frame_resized / 255.0\n        \n        # Convert to tensor\n        frame_tensor = torch.from_numpy(frame_norm).permute(2, 0, 1).float().unsqueeze(0).to(self.device)\n        \n        # Run detection\n        with torch.no_grad():\n            detections = self.detection_model(frame_tensor)\n        \n        # Get highest confidence pet detection\n        best_detection = None\n        best_conf = 0\n        \n        for detection in detections[0]:\n            if detection[4] > 0.5:  # Confidence threshold\n                if detection[4] > best_conf:\n                    best_conf = detection[4]\n                    x1, y1, x2, y2 = detection[0:4].cpu().numpy()\n                    best_detection = {\n                        \"bbox\": [int(x1), int(y1), int(x2), int(y2)],\n                        \"confidence\": float(best_conf)\n                    }\n        \n        return best_detection\n    \n    def extract_pose(self, frame, bbox):\n        # Crop to pet region\n        x1, y1, x2, y2 = bbox\n        pet_region = frame[y1:y2, x1:x2]\n        \n        # Apply MediaPipe pose estimation\n        with self.pose_model.Pose(min_detection_confidence=0.5) as pose:\n            results = pose.process(pet_region)\n        \n        # Extract keypoints\n        keypoints = []\n        if results.pose_landmarks:\n            for landmark in results.pose_landmarks.landmark:\n                keypoints.append([landmark.x, landmark.y, landmark.z, landmark.visibility])\n        \n        return keypoints\n    \n    def analyze_behavior(self, pose_sequence):\n        # Convert pose sequence to tensor\n        seq_tensor = torch.tensor(pose_sequence, dtype=torch.float32).unsqueeze(0).to(self.device)\n        \n        # Run LSTM model\n        with torch.no_grad():\n            outputs = self.lstm_model(seq_tensor)\n            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()\n        \n        # Get predicted behavior and confidence\n        behavior_idx = np.argmax(probs)\n        confidence = float(probs[behavior_idx])\n        behavior_name = self.behavior_classes[behavior_idx]\n        \n        return behavior_name, confidence\n    \n    async def analyze(self, video_data) -> Dict:\n        # Process video into frames\n        frames, fps = self.process_video(video_data)\n        \n        # Detect pet and extract pose in each frame\n        pose_sequence = []\n        frame_results = []\n        \n        for i, frame in enumerate(frames):\n            # Detect pet\n            detection = self.detect_pet(frame)\n            if not detection:\n                continue\n            \n            # Extract pose\n            keypoints = self.extract_pose(frame, detection[\"bbox\"])\n            if keypoints:\n                pose_sequence.append(keypoints)\n                frame_results.append({\n                    \"frame_idx\": i * 5,  # Accounting for sampling every 5th frame\n                    \"bbox\": detection[\"bbox\"],\n                    \"keypoints\": keypoints\n                })\n        \n        # If not enough frames with detected poses\n        if len(pose_sequence) < 10:\n            return {\"error\": \"Not enough frames with detected pet poses\"}\n        \n        # Analyze behavior using LSTM\n        behavior, confidence = self.analyze_behavior(pose_sequence)\n        \n        # Check for abnormal behavior\n        is_abnormal = behavior != \"normal\"\n        \n        return {\n            \"behavior\": behavior,\n            \"confidence\": confidence,\n            \"is_abnormal\": is_abnormal,\n            \"frame_count\": len(frames),\n            \"processed_frames\": len(frame_results),\n            \"fps\": fps\n        }\n```",
+        "testStrategy": "Test pet detection with various video qualities. Verify pose estimation accuracy with different pet types. Test behavior analysis with videos of known behaviors. Measure processing time for different video lengths.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 15,
+        "title": "Create Behavior Analysis API Endpoint",
+        "description": "Implement the REST API endpoint for video-based pet behavior analysis.",
+        "details": "Create the POST /api/v1/behavior-analysis endpoint that accepts pet videos and returns behavior analysis results. Handle video upload and processing. Implement proper validation and error handling for video processing.\n\n```python\nfrom fastapi import APIRouter, Depends, File, UploadFile, Form\nfrom app.services.behavior_analysis import BehaviorAnalysisService\nfrom app.core.auth import get_api_key\n\nrouter = APIRouter()\n\n@router.post(\"/behavior-analysis\", response_model=StandardResponse)\nasync def analyze_behavior(\n    file: UploadFile = File(...),\n    max_duration: int = Form(30),  # Maximum video duration in seconds\n    api_key: str = Depends(get_api_key),\n    analysis_service: BehaviorAnalysisService = Depends()\n):\n    try:\n        # Validate video format\n        if file.content_type not in [\"video/mp4\", \"video/avi\", \"video/quicktime\"]:\n            return {\"success\": False, \"error\": \"Unsupported video format. Please upload MP4, AVI, or MOV.\"}\n        \n        # Read video data\n        video_data = await file.read()\n        \n        # Check video size\n        if len(video_data) > 50 * 1024 * 1024:  # 50MB limit\n            return {\"success\": False, \"error\": \"Video file too large. Maximum size is 50MB.\"}\n        \n        # Process video\n        analysis_result = await analysis_service.analyze(video_data)\n        \n        return {\n            \"success\": True,\n            \"data\": analysis_result\n        }\n    except Exception as e:\n        return {\"success\": False, \"error\": str(e)}\n```",
+        "testStrategy": "Test endpoint with various video formats and sizes. Verify analysis results with test videos of known behaviors. Test error handling with invalid videos. Measure response time under different loads.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          4,
+          14
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 16,
+        "title": "Implement Data Preprocessing Pipeline",
+        "description": "Develop a reusable data preprocessing pipeline for handling images and videos.",
+        "details": "Create a pipeline for preprocessing image and video data that can be used across different services. Implement memory-efficient processing, batching support, and error handling with retry logic.\n\n```python\nimport cv2\nimport numpy as np\nfrom typing import Union, List, Tuple, Dict, Any\nimport io\nfrom PIL import Image\n\nclass DataPreprocessor:\n    def __init__(self, config):\n        self.max_image_size = config.MAX_IMAGE_SIZE\n        self.max_video_frames = config.MAX_VIDEO_FRAMES\n        self.batch_size = config.BATCH_SIZE\n    \n    async def process_image(self, image_data: bytes, target_size: Tuple[int, int] = (224, 224)) -> np.ndarray:\n        \"\"\"Process image data into numpy array with proper formatting\"\"\"\n        try:\n            # Try using PIL first (more memory efficient)\n            image = Image.open(io.BytesIO(image_data))\n            image = image.convert('RGB')\n            image = image.resize(target_size)\n            return np.array(image)\n        except Exception as e:\n            # Fall back to OpenCV\n            nparr = np.frombuffer(image_data, np.uint8)\n            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)\n            if img is None:\n                raise ValueError(f\"Failed to decode image: {str(e)}\")\n            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)\n            img = cv2.resize(img, target_size)\n            return img\n    \n    async def process_video(self, video_data: bytes, sample_rate: int = 1) -> Tuple[List[np.ndarray], float]:\n        \"\"\"Process video data into a list of frames\"\"\"\n        # Save to temporary file\n        temp_path = \"/tmp/temp_video.mp4\"\n        with open(temp_path, \"wb\") as f:\n            f.write(video_data)\n        \n        # Open video\n        cap = cv2.VideoCapture(temp_path)\n        if not cap.isOpened():\n            raise ValueError(\"Failed to open video file\")\n        \n        fps = cap.get(cv2.CAP_PROP_FPS)\n        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))\n        \n        # Limit number of frames to process\n        max_frames = min(frame_count, self.max_video_frames)\n        \n        # Sample frames\n        frames = []\n        frame_idx = 0\n        while len(frames) < max_frames and cap.isOpened():\n            ret, frame = cap.read()\n            if not ret:\n                break\n            \n            if frame_idx % sample_rate == 0:\n                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)\n                frames.append(frame)\n            \n            frame_idx += 1\n        \n        cap.release()\n        return frames, fps\n    \n    async def batch_process(self, items: List[Any], process_func, *args, **kwargs) -> List[Any]:\n        \"\"\"Process items in batches to manage memory usage\"\"\"\n        results = []\n        for i in range(0, len(items), self.batch_size):\n            batch = items[i:i+self.batch_size]\n            batch_results = [await process_func(item, *args, **kwargs) for item in batch]\n            results.extend(batch_results)\n        return results\n    \n    async def retry_operation(self, operation, max_retries: int = 3, *args, **kwargs):\n        \"\"\"Retry an operation with exponential backoff\"\"\"\n        import asyncio\n        import random\n        \n        retries = 0\n        while retries < max_retries:\n            try:\n                return await operation(*args, **kwargs)\n            except Exception as e:\n                retries += 1\n                if retries >= max_retries:\n                    raise e\n                \n                # Exponential backoff with jitter\n                delay = (2 ** retries) + random.uniform(0, 1)\n                await asyncio.sleep(delay)\n```",
+        "testStrategy": "Test image processing with various formats and sizes. Test video processing with different video types. Verify memory usage during batch processing. Test retry logic with simulated failures.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 17,
+        "title": "Implement Error Handling and Input Validation",
+        "description": "Develop a comprehensive error handling and input validation system for all API endpoints.",
+        "details": "Create a system for validating input data and handling errors consistently across all endpoints. Implement detailed error messages, error codes, and proper HTTP status codes. Use Pydantic for input validation.\n\n```python\nfrom fastapi import FastAPI, Request, status\nfrom fastapi.responses import JSONResponse\nfrom fastapi.exceptions import RequestValidationError\nfrom pydantic import BaseModel, validator\nfrom typing import Any, Dict, Optional, List\n\n# Custom exception classes\nclass APIError(Exception):\n    def __init__(self, code: str, message: str, status_code: int = 400):\n        self.code = code\n        self.message = message\n        self.status_code = status_code\n        super().__init__(self.message)\n\nclass ResourceNotFoundError(APIError):\n    def __init__(self, resource: str, resource_id: str):\n        super().__init__(\n            code=\"resource_not_found\",\n            message=f\"{resource} with ID {resource_id} not found\",\n            status_code=404\n        )\n\nclass ValidationError(APIError):\n    def __init__(self, message: str, fields: Optional[Dict[str, List[str]]] = None):\n        self.fields = fields or {}\n        super().__init__(\n            code=\"validation_error\",\n            message=message,\n            status_code=422\n        )\n\n# Error response model\nclass ErrorResponse(BaseModel):\n    success: bool = False\n    error: Dict[str, Any]\n\n# Setup error handlers\ndef setup_error_handlers(app: FastAPI):\n    @app.exception_handler(APIError)\n    async def api_error_handler(request: Request, exc: APIError):\n        return JSONResponse(\n            status_code=exc.status_code,\n            content={\n                \"success\": False,\n                \"error\": {\n                    \"code\": exc.code,\n                    \"message\": exc.message,\n                    \"fields\": getattr(exc, \"fields\", None)\n                }\n            }\n        )\n    \n    @app.exception_handler(RequestValidationError)\n    async def validation_error_handler(request: Request, exc: RequestValidationError):\n        errors = {}\n        for error in exc.errors():\n            location = error[\"loc\"][-1]\n            if location not in errors:\n                errors[location] = []\n            errors[location].append(error[\"msg\"])\n        \n        return JSONResponse(\n            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,\n            content={\n                \"success\": False,\n                \"error\": {\n                    \"code\": \"validation_error\",\n                    \"message\": \"Input validation error\",\n                    \"fields\": errors\n                }\n            }\n        )\n    \n    @app.exception_handler(Exception)\n    async def unhandled_exception_handler(request: Request, exc: Exception):\n        return JSONResponse(\n            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,\n            content={\n                \"success\": False,\n                \"error\": {\n                    \"code\": \"internal_server_error\",\n                    \"message\": \"An unexpected error occurred\"\n                }\n            }\n        )\n\n# Input validation examples\nclass ImageUploadValidator(BaseModel):\n    file_size: int\n    content_type: str\n    \n    @validator('file_size')\n    def validate_file_size(cls, v):\n        max_size = 10 * 1024 * 1024  # 10MB\n        if v > max_size:\n            raise ValueError(f\"File size exceeds maximum allowed size of {max_size} bytes\")\n        return v\n    \n    @validator('content_type')\n    def validate_content_type(cls, v):\n        allowed_types = [\"image/jpeg\", \"image/png\", \"image/jpg\"]\n        if v not in allowed_types:\n            raise ValueError(f\"Content type must be one of: {', '.join(allowed_types)}\")\n        return v\n```",
+        "testStrategy": "Test error handling with various error scenarios. Verify validation works correctly for different input types. Test error responses have the correct format and status codes. Verify custom exceptions work as expected.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 18,
+        "title": "Implement Performance Optimization and Caching",
+        "description": "Develop performance optimization strategies and caching mechanisms for the API services.",
+        "details": "Implement caching for frequently used data and API responses. Optimize model loading and inference. Implement request batching for improved throughput. Use asynchronous processing where appropriate.\n\n```python\nfrom fastapi import FastAPI, Depends, Request, Response\nfrom fastapi_cache import FastAPICache\nfrom fastapi_cache.backends.redis import RedisBackend\nfrom fastapi_cache.decorator import cache\nimport redis\nimport time\nfrom functools import lru_cache\nimport asyncio\nfrom typing import List, Dict, Any, Optional\n\n# Redis cache setup\ndef setup_cache(app: FastAPI, config):\n    redis_client = redis.Redis(\n        host=config.REDIS_HOST,\n        port=config.REDIS_PORT,\n        password=config.REDIS_PASSWORD,\n        db=config.REDIS_DB\n    )\n    FastAPICache.init(RedisBackend(redis_client), prefix=\"duopet-ai-cache:\")\n\n# Model caching\nclass ModelCache:\n    def __init__(self, max_size: int = 5):\n        self.models = {}\n        self.max_size = max_size\n        self.usage_count = {}\n        self.lock = asyncio.Lock()\n    \n    async def get_model(self, model_name: str, version: str, loader_func):\n        key = f\"{model_name}:{version}\"\n        \n        async with self.lock:\n            # If model is already loaded, update usage count and return\n            if key in self.models:\n                self.usage_count[key] += 1\n                return self.models[key]\n            \n            # If cache is full, remove least used model\n            if len(self.models) >= self.max_size:\n                least_used = min(self.usage_count.items(), key=lambda x: x[1])[0]\n                del self.models[least_used]\n                del self.usage_count[least_used]\n            \n            # Load model\n            model = await loader_func()\n            self.models[key] = model\n            self.usage_count[key] = 1\n            \n            return model\n\n# Request batching\nclass RequestBatcher:\n    def __init__(self, batch_size: int = 16, max_wait_time: float = 0.1):\n        self.batch_size = batch_size\n        self.max_wait_time = max_wait_time\n        self.pending_requests = []\n        self.lock = asyncio.Lock()\n        self.processing = False\n    \n    async def add_request(self, data: Any) -> Any:\n        async with self.lock:\n            # Create future for this request\n            future = asyncio.Future()\n            self.pending_requests.append((data, future))\n            \n            # Start processing if not already running\n            if not self.processing:\n                self.processing = True\n                asyncio.create_task(self._process_batch())\n        \n        # Wait for result\n        return await future\n    \n    async def _process_batch(self):\n        while True:\n            # Wait for batch to fill or timeout\n            start_time = time.time()\n            while (len(self.pending_requests) < self.batch_size and \n                   time.time() - start_time < self.max_wait_time and\n                   len(self.pending_requests) > 0):\n                await asyncio.sleep(0.01)\n            \n            # Get current batch\n            async with self.lock:\n                if not self.pending_requests:\n                    self.processing = False\n                    return\n                \n                current_batch = self.pending_requests[:self.batch_size]\n                self.pending_requests = self.pending_requests[self.batch_size:]\n            \n            # Process batch\n            try:\n                batch_data = [item[0] for item in current_batch]\n                results = await self._process_items(batch_data)\n                \n                # Set results to futures\n                for (_, future), result in zip(current_batch, results):\n                    future.set_result(result)\n            except Exception as e:\n                # Set exception to all futures in batch\n                for _, future in current_batch:\n                    future.set_exception(e)\n    \n    async def _process_items(self, items: List[Any]) -> List[Any]:\n        # Override this method in subclasses\n        raise NotImplementedError()\n\n# Example usage for model inference batching\nclass InferenceBatcher(RequestBatcher):\n    def __init__(self, model, *args, **kwargs):\n        super().__init__(*args, **kwargs)\n        self.model = model\n    \n    async def _process_items(self, items: List[Any]) -> List[Any]:\n        # Convert items to batch tensor\n        batch_tensor = torch.stack(items)\n        \n        # Run inference\n        with torch.no_grad():\n            results = self.model(batch_tensor)\n        \n        # Convert results to list\n        return results.cpu().numpy().tolist()\n\n# Response caching middleware\n@lru_cache(maxsize=128)\ndef get_cache_key(request: Request):\n    return f\"{request.method}:{request.url.path}:{hash(request.query_params)}:{hash(request.path_params)}\"\n\nasync def cache_middleware(request: Request, call_next):\n    # Skip caching for non-GET requests\n    if request.method != \"GET\":\n        return await call_next(request)\n    \n    # Get cache key\n    cache_key = get_cache_key(request)\n    \n    # Check if response is cached\n    cached_response = await FastAPICache.get(cache_key)\n    if cached_response:\n        return Response(\n            content=cached_response[\"content\"],\n            status_code=cached_response[\"status_code\"],\n            headers=cached_response[\"headers\"],\n            media_type=cached_response[\"media_type\"]\n        )\n    \n    # Get response\n    response = await call_next(request)\n    \n    # Cache response\n    response_body = b\"\"\n    async for chunk in response.body_iterator:\n        response_body += chunk\n    \n    await FastAPICache.set(\n        cache_key,\n        {\n            \"content\": response_body,\n            \"status_code\": response.status_code,\n            \"headers\": dict(response.headers),\n            \"media_type\": response.media_type\n        },\n        expire=60 * 5  # 5 minutes\n    )\n    \n    return Response(\n        content=response_body,\n        status_code=response.status_code,\n        headers=response.headers,\n        media_type=response.media_type\n    )\n```",
+        "testStrategy": "Test caching with repeated API calls. Measure performance improvements with and without optimizations. Test model caching with different models. Verify request batching improves throughput under load.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 19,
+        "title": "Implement Docker Containerization",
+        "description": "Create Docker configuration for containerizing the AI services.",
+        "details": "Create Dockerfile and docker-compose.yml for containerizing the FastAPI services. Configure environment-specific settings. Optimize container size and performance. Setup proper networking between containers.\n\n```dockerfile\n# Dockerfile\nFROM python:3.9-slim as base\n\n# Set working directory\nWORKDIR /app\n\n# Install system dependencies\nRUN apt-get update && apt-get install -y --no-install-recommends \\\n    build-essential \\\n    libgl1-mesa-glx \\\n    libglib2.0-0 \\\n    && rm -rf /var/lib/apt/lists/*\n\n# Install Python dependencies\nCOPY requirements.txt .\nRUN pip install --no-cache-dir -r requirements.txt\n\n# Copy application code\nCOPY . .\n\n# Create non-root user\nRUN useradd -m appuser\nUSER appuser\n\n# Set environment variables\nENV PYTHONUNBUFFERED=1 \\\n    PYTHONDONTWRITEBYTECODE=1 \\\n    PORT=8000\n\n# Expose port\nEXPOSE ${PORT}\n\n# Run the application\nCMD [\"uvicorn\", \"app.main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"${PORT}\", \"--workers\", \"4\"]\n```\n\n```yaml\n# docker-compose.yml\nversion: '3.8'\n\nservices:\n  api:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    ports:\n      - \"8000:8000\"\n    volumes:\n      - ./app:/app/app\n      - ./models:/app/models\n    environment:\n      - ENVIRONMENT=development\n      - LOG_LEVEL=debug\n      - REDIS_HOST=redis\n      - REDIS_PORT=6379\n      - REDIS_PASSWORD=\n      - REDIS_DB=0\n      - OPENAI_API_KEY=${OPENAI_API_KEY}\n      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}\n    depends_on:\n      - redis\n    deploy:\n      resources:\n        limits:\n          cpus: '2'\n          memory: 4G\n        reservations:\n          cpus: '1'\n          memory: 2G\n\n  redis:\n    image: redis:6-alpine\n    ports:\n      - \"6379:6379\"\n    volumes:\n      - redis_data:/data\n    command: redis-server --appendonly yes\n\nvolumes:\n  redis_data:\n```\n\n```python\n# app/core/config.py\nfrom pydantic import BaseSettings\nimport os\n\nclass Settings(BaseSettings):\n    # Application settings\n    APP_NAME: str = \"DuoPet AI System\"\n    ENVIRONMENT: str = os.getenv(\"ENVIRONMENT\", \"development\")\n    DEBUG: bool = ENVIRONMENT == \"development\"\n    API_PREFIX: str = \"/api/v1\"\n    \n    # Server settings\n    HOST: str = \"0.0.0.0\"\n    PORT: int = int(os.getenv(\"PORT\", 8000))\n    WORKERS: int = int(os.getenv(\"WORKERS\", 4))\n    \n    # Redis settings\n    REDIS_HOST: str = os.getenv(\"REDIS_HOST\", \"localhost\")\n    REDIS_PORT: int = int(os.getenv(\"REDIS_PORT\", 6379))\n    REDIS_PASSWORD: str = os.getenv(\"REDIS_PASSWORD\", \"\")\n    REDIS_DB: int = int(os.getenv(\"REDIS_DB\", 0))\n    \n    # API keys\n    OPENAI_API_KEY: str = os.getenv(\"OPENAI_API_KEY\", \"\")\n    YOUTUBE_API_KEY: str = os.getenv(\"YOUTUBE_API_KEY\", \"\")\n    \n    # Model settings\n    MODEL_DIR: str = os.getenv(\"MODEL_DIR\", \"./models\")\n    MAX_IMAGE_SIZE: int = int(os.getenv(\"MAX_IMAGE_SIZE\", 1024))\n    MAX_VIDEO_FRAMES: int = int(os.getenv(\"MAX_VIDEO_FRAMES\", 300))\n    BATCH_SIZE: int = int(os.getenv(\"BATCH_SIZE\", 16))\n    \n    class Config:\n        env_file = \".env\"\n        env_file_encoding = \"utf-8\"\n\nsettings = Settings()\n```",
+        "testStrategy": "Test Docker build process. Verify containers start correctly with different environment configurations. Test container networking and communication. Measure container resource usage under load.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": []
+      },
+      {
+        "id": 20,
+        "title": "Implement CI/CD Pipeline and Testing Framework",
+        "description": "Set up continuous integration, continuous deployment, and comprehensive testing.",
+        "details": "Create CI/CD pipeline using GitHub Actions or similar. Implement unit tests, integration tests, and performance tests. Configure automated deployment to development and production environments. Set up code quality checks and test coverage reporting.\n\n```yaml\n# .github/workflows/ci.yml\nname: CI/CD Pipeline\n\non:\n  push:\n    branches: [ main, develop ]\n  pull_request:\n    branches: [ main, develop ]\n\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v2\n      - name: Set up Python\n        uses: actions/setup-python@v2\n        with:\n          python-version: '3.9'\n      - name: Install dependencies\n        run: |\n          python -m pip install --upgrade pip\n          pip install -r requirements.txt\n          pip install -r requirements-dev.txt\n      - name: Lint with flake8\n        run: |\n          flake8 app tests\n      - name: Type check with mypy\n        run: |\n          mypy app\n      - name: Run unit tests\n        run: |\n          pytest tests/unit --cov=app --cov-report=xml\n      - name: Upload coverage to Codecov\n        uses: codecov/codecov-action@v1\n\n  integration-test:\n    runs-on: ubuntu-latest\n    needs: test\n    if: github.event_name == 'push'\n    steps:\n      - uses: actions/checkout@v2\n      - name: Set up Python\n        uses: actions/setup-python@v2\n        with:\n          python-version: '3.9'\n      - name: Install dependencies\n        run: |\n          python -m pip install --upgrade pip\n          pip install -r requirements.txt\n          pip install -r requirements-dev.txt\n      - name: Start test services\n        run: |\n          docker-compose -f docker-compose.test.yml up -d\n      - name: Run integration tests\n        run: |\n          pytest tests/integration\n      - name: Stop test services\n        run: |\n          docker-compose -f docker-compose.test.yml down\n\n  deploy-dev:\n    runs-on: ubuntu-latest\n    needs: integration-test\n    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'\n    steps:\n      - uses: actions/checkout@v2\n      - name: Deploy to development\n        run: |\n          # Add deployment script here\n          echo \"Deploying to development environment\"\n\n  deploy-prod:\n    runs-on: ubuntu-latest\n    needs: integration-test\n    if: github.event_name == 'push' && github.ref == 'refs/heads/main'\n    steps:\n      - uses: actions/checkout@v2\n      - name: Deploy to production\n        run: |\n          # Add deployment script here\n          echo \"Deploying to production environment\"\n```\n\n```python\n# tests/conftest.py\nimport pytest\nfrom fastapi.testclient import TestClient\nfrom app.main import app\nimport os\nimport sys\n\n# Add app directory to path\nsys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), \"..\")))\n\n@pytest.fixture\ndef client():\n    with TestClient(app) as client:\n        yield client\n\n@pytest.fixture\ndef test_image():\n    # Load a test image for testing image-based endpoints\n    with open(\"tests/data/test_dog.jpg\", \"rb\") as f:\n        return f.read()\n\n@pytest.fixture\ndef test_video():\n    # Load a test video for testing video-based endpoints\n    with open(\"tests/data/test_dog_behavior.mp4\", \"rb\") as f:\n        return f.read()\n\n@pytest.fixture\ndef mock_api_key():\n    return \"test-api-key-12345\"\n```\n\n```python\n# tests/unit/test_face_recognition.py\nimport pytest\nfrom app.services.face_recognition import FaceRecognitionService\nimport numpy as np\n\ndef test_face_detection(mocker):\n    # Mock model registry\n    mock_registry = mocker.MagicMock()\n    mock_model = mocker.MagicMock()\n    mock_registry.load_model.return_value = mock_model\n    \n    # Create service\n    service = FaceRecognitionService(mock_registry)\n    \n    # Mock image data\n    test_image = np.random.randint(0, 255, (100, 100, 3), dtype=np.uint8)\n    \n    # Mock detection result\n    mock_detection = mocker.patch.object(service, 'extract_face_embedding')\n    mock_detection.return_value = np.random.random(128)  # Mock embedding\n    \n    # Test embedding extraction\n    embedding = service.extract_face_embedding(test_image)\n    assert embedding.shape == (128,)\n    \n    # Test comparison\n    embedding2 = np.random.random(128)\n    result = service.compare_embeddings(embedding, embedding2)\n    assert isinstance(result, bool)\n```\n\n```python\n# tests/integration/test_face_login_api.py\nimport pytest\nfrom fastapi.testclient import TestClient\n\ndef test_face_login_endpoint(client, test_image, mock_api_key):\n    # Test face login endpoint\n    response = client.post(\n        \"/api/v1/face-login\",\n        files={\"file\": (\"test.jpg\", test_image, \"image/jpeg\")},\n        data={\"user_id\": \"test-user\"},\n        headers={\"X-API-Key\": mock_api_key}\n    )\n    \n    assert response.status_code == 200\n    data = response.json()\n    assert data[\"success\"] is True\n    assert \"authenticated\" in data[\"data\"]\n    assert \"confidence\" in data[\"data\"]\n```",
+        "testStrategy": "Test CI/CD pipeline with different code changes. Verify unit tests cover at least 80% of code. Test deployment to different environments. Verify code quality checks work correctly.",
+        "priority": "medium",
+        "dependencies": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "status": "pending",
+        "subtasks": []
+      }
+    ],
+    "metadata": {
+      "created": "2025-07-14T01:06:02.233Z",
+      "updated": "2025-07-14T02:19:24.435Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

@@ -1,0 +1,191 @@
+"""
+Configuration management for DuoPet AI Service
+
+This module handles all configuration settings using Pydantic Settings.
+"""
+
+import os
+from typing import List, Optional, Dict, Any
+from functools import lru_cache
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+import yaml
+
+
+class Settings(BaseSettings):
+    """Application settings with environment variable support"""
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True
+    )
+    
+    # Application
+    APP_NAME: str = "DuoPet AI Service"
+    APP_VERSION: str = "1.0.0"
+    APP_DESCRIPTION: str = "AI Microservices for DuoPet Platform"
+    ENVIRONMENT: str = Field(default="development", description="Runtime environment")
+    DEBUG: bool = Field(default=False)
+    
+    # API Server
+    API_HOST: str = Field(default="0.0.0.0")
+    API_PORT: int = Field(default=8000)
+    API_WORKERS: int = Field(default=4)
+    
+    # Security
+    API_SECRET_KEY: str = Field(..., min_length=32)
+    API_KEY_SALT: str = Field(...)
+    JWT_ALGORITHM: str = Field(default="HS256")
+    JWT_EXPIRATION_DAYS: int = Field(default=30)
+    
+    # API Keys
+    OPENAI_API_KEY: Optional[str] = Field(default=None)
+    YOUTUBE_API_KEY: Optional[str] = Field(default=None)
+    PERPLEXITY_API_KEY: Optional[str] = Field(default=None)
+    
+    # Database
+    MONGODB_URL: str = Field(default="mongodb://localhost:27017")
+    MONGODB_DATABASE: str = Field(default="duopet_ai")
+    REDIS_URL: str = Field(default="redis://localhost:6379")
+    
+    # Model Configuration
+    MODEL_PATH: str = Field(default="/app/models")
+    MAX_BATCH_SIZE: int = Field(default=32)
+    GPU_DEVICE: str = Field(default="cuda:0")
+    USE_GPU: bool = Field(default=True)
+    
+    # Logging
+    LOG_LEVEL: str = Field(default="INFO")
+    LOG_FILE_PATH: str = Field(default="/app/logs/duopet_ai.log")
+    LOG_MAX_SIZE: str = Field(default="100MB")
+    LOG_BACKUP_COUNT: int = Field(default=5)
+    
+    # CORS
+    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000", "http://localhost:8080"])
+    CORS_ALLOW_CREDENTIALS: bool = Field(default=True)
+    ALLOWED_HOSTS: List[str] = Field(default=["*"])
+    
+    # File Upload
+    MAX_UPLOAD_SIZE_MB: int = Field(default=50)
+    ALLOWED_IMAGE_EXTENSIONS: List[str] = Field(default=[".jpg", ".jpeg", ".png", ".bmp"])
+    ALLOWED_VIDEO_EXTENSIONS: List[str] = Field(default=[".mp4", ".avi", ".mov", ".mkv"])
+    
+    # External Services
+    SPRING_BOOT_API_URL: str = Field(default="http://localhost:8080/api")
+    SPRING_BOOT_API_KEY: Optional[str] = Field(default=None)
+    
+    # Feature Flags
+    FEATURES_FACE_LOGIN_ENABLED: bool = Field(default=True)
+    FEATURES_CHATBOT_ENABLED: bool = Field(default=True)
+    FEATURES_HEALTH_DIAGNOSIS_ENABLED: bool = Field(default=True)
+    FEATURES_BEHAVIOR_ANALYSIS_ENABLED: bool = Field(default=True)
+    FEATURES_VIDEO_RECOMMEND_ENABLED: bool = Field(default=True)
+    
+    @field_validator("ENVIRONMENT")
+    @classmethod
+    def validate_environment(cls, v: str) -> str:
+        allowed = ["development", "staging", "production"]
+        if v not in allowed:
+            raise ValueError(f"Environment must be one of {allowed}")
+        return v
+    
+    @field_validator("LOG_LEVEL")
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        allowed = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        v = v.upper()
+        if v not in allowed:
+            raise ValueError(f"Log level must be one of {allowed}")
+        return v
+    
+    @property
+    def is_production(self) -> bool:
+        """Check if running in production environment"""
+        return self.ENVIRONMENT == "production"
+    
+    @property
+    def is_development(self) -> bool:
+        """Check if running in development environment"""
+        return self.ENVIRONMENT == "development"
+    
+    @property
+    def max_upload_size_bytes(self) -> int:
+        """Get max upload size in bytes"""
+        return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+
+class ModelConfig:
+    """Model-specific configuration loaded from YAML"""
+    
+    def __init__(self, config_path: str = "config/config.yaml"):
+        self.config_path = config_path
+        self._config = self._load_config()
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Load configuration from YAML file"""
+        if os.path.exists(self.config_path):
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
+        return {}
+    
+    def get_model_config(self, model_name: str) -> Dict[str, Any]:
+        """Get configuration for a specific model"""
+        return self._config.get("models", {}).get(model_name, {})
+    
+    def get_preprocessing_config(self, data_type: str) -> Dict[str, Any]:
+        """Get preprocessing configuration"""
+        return self._config.get("preprocessing", {}).get(data_type, {})
+    
+    def get_api_config(self) -> Dict[str, Any]:
+        """Get API configuration"""
+        return self._config.get("api", {})
+    
+    def get_feature_config(self, feature: str) -> Dict[str, Any]:
+        """Get feature-specific configuration"""
+        return self._config.get("features", {}).get(feature, {})
+
+
+@lru_cache()
+def get_settings() -> Settings:
+    """Get cached settings instance"""
+    return Settings()
+
+
+@lru_cache()
+def get_model_config() -> ModelConfig:
+    """Get cached model configuration instance"""
+    return ModelConfig()
+
+
+# Convenience functions
+def is_feature_enabled(feature: str) -> bool:
+    """Check if a feature is enabled"""
+    settings = get_settings()
+    feature_map = {
+        "face_login": settings.FEATURES_FACE_LOGIN_ENABLED,
+        "chatbot": settings.FEATURES_CHATBOT_ENABLED,
+        "health_diagnosis": settings.FEATURES_HEALTH_DIAGNOSIS_ENABLED,
+        "behavior_analysis": settings.FEATURES_BEHAVIOR_ANALYSIS_ENABLED,
+        "video_recommend": settings.FEATURES_VIDEO_RECOMMEND_ENABLED,
+    }
+    return feature_map.get(feature, False)
+
+
+def get_redis_url() -> str:
+    """Get Redis connection URL"""
+    settings = get_settings()
+    return settings.REDIS_URL
+
+
+def get_mongodb_url() -> str:
+    """Get MongoDB connection URL"""
+    settings = get_settings()
+    return settings.MONGODB_URL
+
+
+def get_model_path(model_filename: str) -> str:
+    """Get full path to a model file"""
+    settings = get_settings()
+    return os.path.join(settings.MODEL_PATH, model_filename)
