@@ -6,7 +6,7 @@ following the DuoPet API specification.
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Optional, Dict, List, Union
+from typing import Any, Optional, Dict, List, Union, TypeVar, Generic
 from datetime import datetime
 from enum import Enum
 
@@ -56,22 +56,24 @@ class ErrorDetail(BaseModel):
     detail: Optional[Dict[str, Any]] = Field(None, description="Additional error details")
     timestamp: datetime = Field(default_factory=datetime.now, description="Error timestamp")
 
+T = TypeVar('T')
 
-class StandardResponse(BaseModel):
+
+class StandardResponse(BaseModel, Generic[T]):
     """
     Standard API response format for all endpoints
-    
+
     All API responses follow this structure to ensure consistency
     across the entire DuoPet AI service.
     """
     success: bool = Field(..., description="Whether the request was successful")
-    data: Optional[Any] = Field(None, description="Response data if successful")
+    data: Optional[T] = Field(None, description="Response data if successful")
     error: Optional[ErrorDetail] = Field(None, description="Error details if failed")
     metadata: Optional[Dict[str, Any]] = Field(
-        None, 
+        None,
         description="Additional metadata (processing time, version, etc.)"
     )
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -87,14 +89,19 @@ class StandardResponse(BaseModel):
             }
         }
 
+class PaginatedData(BaseModel, Generic[T]):
+    items: List[T]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
 
-class PaginatedResponse(StandardResponse):
+class PaginatedResponse(StandardResponse[PaginatedData[T]]):
     """Response format for paginated data"""
-    data: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Contains 'items' list and pagination info"
-    )
-    
+    pass
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -115,33 +122,25 @@ def create_success_response(
     data: Any = None,
     metadata: Optional[Dict[str, Any]] = None,
     processing_time_ms: Optional[float] = None
-) -> StandardResponse:
+) -> Dict[str, Any]:
     """
-    Create a standardized success response
-    
-    Args:
-        data: The response data
-        metadata: Additional metadata
-        processing_time_ms: Request processing time in milliseconds
-    
-    Returns:
-        StandardResponse object
+    Create a standardized success response dictionary.
     """
     if metadata is None:
         metadata = {}
-    
+
     if processing_time_ms is not None:
         metadata["processing_time_ms"] = round(processing_time_ms, 2)
-    
-    metadata["timestamp"] = datetime.now().isoformat()
+
     metadata["api_version"] = "1.0.0"
-    
-    return StandardResponse(
+
+    response_model = StandardResponse(
         success=True,
         data=data,
         error=None,
         metadata=metadata
     )
+    return response_model.model_dump(mode='json')
 
 
 def create_error_response(
@@ -149,37 +148,28 @@ def create_error_response(
     message: str,
     detail: Optional[Dict[str, Any]] = None,
     metadata: Optional[Dict[str, Any]] = None
-) -> StandardResponse:
+) -> Dict[str, Any]:
     """
-    Create a standardized error response
-    
-    Args:
-        error_code: The error code from ErrorCode enum
-        message: Human-readable error message
-        detail: Additional error details
-        metadata: Additional metadata
-    
-    Returns:
-        StandardResponse object
+    Create a standardized error response dictionary.
     """
     if metadata is None:
         metadata = {}
-    
-    metadata["timestamp"] = datetime.now().isoformat()
+
     metadata["api_version"] = "1.0.0"
-    
+
     error_detail = ErrorDetail(
         code=error_code,
         message=message,
         detail=detail
     )
-    
-    return StandardResponse(
+
+    response_model = StandardResponse(
         success=False,
         data=None,
         error=error_detail,
         metadata=metadata
     )
+    return response_model.model_dump(mode='json')
 
 
 def create_paginated_response(
@@ -188,41 +178,31 @@ def create_paginated_response(
     page: int = 1,
     page_size: int = 20,
     metadata: Optional[Dict[str, Any]] = None
-) -> PaginatedResponse:
+) -> Dict[str, Any]:
     """
-    Create a paginated response
-    
-    Args:
-        items: List of items for current page
-        total: Total number of items
-        page: Current page number (1-based)
-        page_size: Number of items per page
-        metadata: Additional metadata
-    
-    Returns:
-        PaginatedResponse object
+    Create a paginated response dictionary.
     """
     total_pages = (total + page_size - 1) // page_size
-    
-    data = {
-        "items": items,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": total_pages,
-        "has_next": page < total_pages,
-        "has_prev": page > 1
-    }
-    
+
+    paginated_data = PaginatedData(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+        has_next=page < total_pages,
+        has_prev=page > 1
+    )
+
     if metadata is None:
         metadata = {}
-    
-    metadata["timestamp"] = datetime.now().isoformat()
+
     metadata["api_version"] = "1.0.0"
-    
-    return PaginatedResponse(
+
+    response_model = PaginatedResponse(
         success=True,
-        data=data,
+        data=paginated_data,
         error=None,
         metadata=metadata
     )
+    return response_model.model_dump(mode='json')

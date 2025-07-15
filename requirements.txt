@@ -52,3 +52,13 @@ black==23.12.1
 flake8==6.1.0
 mypy==1.7.1
 pre-commit==3.6.0
+
+# 챗봇용
+torchaudio
+sentence-transformers
+chromadb
+beautifulsoup4
+selenium
+webdriver-manager
+pydantic-settings
+oracledb

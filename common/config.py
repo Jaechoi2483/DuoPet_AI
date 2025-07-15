@@ -12,12 +12,13 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import yaml
 
-
+PROJECT_ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ENV_FILE_FULL_PATH = os.path.join(PROJECT_ROOT_DIR, ".env")
 class Settings(BaseSettings):
     """Application settings with environment variable support"""
     
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE_FULL_PATH,
         env_file_encoding="utf-8",
         case_sensitive=True
     )
@@ -49,6 +50,10 @@ class Settings(BaseSettings):
     MONGODB_URL: str = Field(default="mongodb://localhost:27017")
     MONGODB_DATABASE: str = Field(default="duopet_ai")
     REDIS_URL: str = Field(default="redis://localhost:6379")
+
+    ORACLE_USER: Optional[str] = Field(default=None)
+    ORACLE_PASSWORD: Optional[str] = Field(default=None)
+    ORACLE_DSN: Optional[str] = Field(default=None)
     
     # Model Configuration
     MODEL_PATH: str = Field(default="/app/models")
@@ -82,6 +87,27 @@ class Settings(BaseSettings):
     FEATURES_HEALTH_DIAGNOSIS_ENABLED: bool = Field(default=True)
     FEATURES_BEHAVIOR_ANALYSIS_ENABLED: bool = Field(default=True)
     FEATURES_VIDEO_RECOMMEND_ENABLED: bool = Field(default=True)
+
+    # External Services
+    SPRING_BOOT_API_URL: str = Field(default="http://localhost:8080/api")
+    SPRING_BOOT_API_KEY: Optional[str] = Field(default=None)
+
+    # 새로 추가할 부분:
+    SPRING_JWT_SECRET: Optional[str] = Field(default=None)  # .env에서 값을 받으므로 Optional로 설정하거나 Field(...)로 필수로 설정
+
+    # Feature Flags
+    FEATURES_FACE_LOGIN_ENABLED: bool = Field(default=True)
+
+    CORS_ORIGINS: List[str] = Field(default=[])  # default 값은 원하는 대로 설정
+    ALLOWED_IMAGE_EXTENSIONS: List[str] = Field(default=[])
+    ALLOWED_VIDEO_EXTENSIONS: List[str] = Field(default=[])
+
+    @field_validator('CORS_ORIGINS', 'ALLOWED_IMAGE_EXTENSIONS', 'ALLOWED_VIDEO_EXTENSIONS', mode='before')
+    @classmethod
+    def _split_str_to_list(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(',') if item.strip()]
+        return v  # 이미 리스트이거나 다른 타입이면 그대로 반환
     
     @field_validator("ENVIRONMENT")
     @classmethod

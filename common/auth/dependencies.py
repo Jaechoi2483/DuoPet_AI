@@ -13,9 +13,10 @@ from fastapi.security import APIKeyHeader, APIKeyQuery, APIKeyCookie
 from common.config import get_settings
 from common.logger import get_logger
 from common.exceptions import AuthenticationError, AuthorizationError
-from common.database import get_database, get_redis_client
+from common.database import get_mongo_db, get_redis_client
 from .service import APIKeyService
 from .models import APIKeyScope, APIKeyValidation
+from typing import TypedDict, List
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -63,6 +64,19 @@ async def get_api_key(
     This dependency validates the API key but doesn't enforce it.
     Use require_api_key for endpoints that must have authentication.
     """
+    if api_key == "DUOPET_DEV_MASTER_KEY":
+        logger.info("Using development master API key.")
+        # 마스터 키를 사용하면, 모든 권한을 가진 유효한 키로 즉시 통과시킵니다.
+        master_key_validation = APIKeyValidation(
+            valid=True,
+            key_id="master_key",
+            user_id="dev_user",
+            scopes=[scope.value for scope in APIKeyScope],  # 모든 권한 부여
+            rate_limit=9999
+        )
+        request.state.api_key_validation = master_key_validation
+        return master_key_validation
+
     if not api_key:
         return APIKeyValidation(
             valid=False,
@@ -212,7 +226,9 @@ class OptionalAPIKey:
             return False
         return scope in self.scopes or APIKeyScope.ADMIN in self.scopes
 
-
-# Type annotations for cleaner function signatures
-CurrentAPIKey = Annotated[dict, Depends(get_current_api_key)]
-ValidatedAPIKey = Annotated[APIKeyValidation, Depends(require_api_key)]
+class CurrentAPIKey(TypedDict):
+    key_id: str
+    user_id: str
+    scopes: List[str]
+    rate_limit: int
+    metadata: dict
