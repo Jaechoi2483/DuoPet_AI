@@ -1,7 +1,8 @@
 """
-API Key management service for DuoPet AI Service
+API Key management service for DuoPet AI Service - Oracle DB version
 
-This module provides functionality for creating, validating, and managing API keys.
+This module provides functionality for creating, validating, and managing API keys
+using Oracle DB instead of MongoDB.
 """
 
 import secrets
@@ -10,505 +11,288 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import re
 
-from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from pymongo.errors import DuplicateKeyError
-import redis.asyncio as redis
+from sqlalchemy import select, update, delete, and_, or_
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from common.config import get_settings
 from common.logger import get_logger
-from common.monitoring import track_cache_operation, record_cache_hit, record_cache_miss
 from common.exceptions import (
     AuthenticationError, 
     AuthorizationError, 
     NotFoundError,
     ValidationError
 )
-from .models import (
-    APIKeyModel,
-    APIKeyCreate,
-    APIKeyUpdate,
-    APIKeyResponse,
-    APIKeyWithSecret,
-    APIKeyValidation,
-    APIKeyStatus,
-    APIKeyScope
-)
+from .models import APIKeyResponse, APIKeyCreate, APIKeyUpdate
+from .models_sqlalchemy import APIKey
 
 settings = get_settings()
 logger = get_logger(__name__)
 
 
 class APIKeyService:
-    """Service for managing API keys"""
+    """API Key management service using Oracle DB"""
     
-    # API key format: sk_live_<32 random characters>
-    KEY_PREFIX = "sk_live_"
-    KEY_LENGTH = 32
-    KEY_PATTERN = re.compile(r"^sk_live_[a-zA-Z0-9]{32}$")
+    API_KEY_PREFIX = "duopet_"
+    API_KEY_LENGTH = 32
+    HASH_ALGORITHM = "sha256"
     
-    # Cache settings
-    CACHE_PREFIX = "api_key:"
-    CACHE_TTL = 300  # 5 minutes
-    
-    def __init__(
-        self,
-        db: AsyncIOMotorDatabase,
-        redis_client: Optional[redis.Redis] = None
-    ):
-        self.db = db
-        self.collection = db.api_keys
-        self.redis_client = redis_client
-        
-        # Create indexes
-        self._create_indexes()
-    
-    def _create_indexes(self):
-        """Create database indexes for API keys"""
-        # Unique index on key_id
-        self.collection.create_index("key_id", unique=True)
-        # Index on user_id for quick lookups
-        self.collection.create_index("user_id")
-        # Index on status for filtering
-        self.collection.create_index("status")
-        # Compound index for active keys by user
-        self.collection.create_index([("user_id", 1), ("status", 1)])
+    def __init__(self, db_session: Session):
+        self.db = db_session
     
     @staticmethod
-    def _generate_api_key() -> tuple[str, str]:
-        """
-        Generate a new API key
-        
-        Returns:
-            Tuple of (api_key, key_id)
-        """
-        # Generate random key
-        random_part = secrets.token_urlsafe(KEY_LENGTH)[:KEY_LENGTH]
-        api_key = f"{APIKeyService.KEY_PREFIX}{random_part}"
-        
-        # Generate key ID (first 8 chars of hash)
-        key_id = f"key_{hashlib.sha256(api_key.encode()).hexdigest()[:8]}"
-        
-        return api_key, key_id
+    def _generate_api_key() -> str:
+        """Generate a secure random API key"""
+        return f"{APIKeyService.API_KEY_PREFIX}{secrets.token_urlsafe(APIKeyService.API_KEY_LENGTH)}"
     
     @staticmethod
     def _hash_api_key(api_key: str) -> str:
-        """
-        Hash an API key for storage
-        
-        Args:
-            api_key: The API key to hash
-            
-        Returns:
-            Hashed API key
-        """
-        # Use SHA256 with salt from settings
-        salt = settings.API_KEY_SALT.encode()
-        return hashlib.sha256(salt + api_key.encode()).hexdigest()
+        """Hash an API key for secure storage"""
+        return hashlib.sha256(api_key.encode()).hexdigest()
     
-    async def create_api_key(
-        self,
-        user_id: str,
-        key_data: APIKeyCreate,
-        organization_id: Optional[str] = None
-    ) -> APIKeyWithSecret:
+    @staticmethod
+    def _get_key_prefix(api_key: str) -> str:
+        """Extract prefix from API key for identification"""
+        return api_key[:16] if len(api_key) >= 16 else api_key
+    
+    @staticmethod
+    def _validate_api_key_format(api_key: str) -> bool:
+        """Validate API key format"""
+        pattern = rf"^{APIKeyService.API_KEY_PREFIX}[A-Za-z0-9_-]{{{APIKeyService.API_KEY_LENGTH}}}$"
+        return bool(re.match(pattern, api_key))
+    
+    async def create_api_key(self, key_data: APIKeyCreate) -> tuple[APIKeyResponse, str]:
         """
         Create a new API key
         
-        Args:
-            user_id: ID of the user creating the key
-            key_data: API key creation data
-            organization_id: Optional organization ID
-            
         Returns:
-            Created API key with secret
+            Tuple of (APIKeyResponse, raw_api_key)
         """
-        # Generate API key
-        api_key, key_id = self._generate_api_key()
-        key_hash = self._hash_api_key(api_key)
+        # Generate new API key
+        raw_api_key = self._generate_api_key()
+        key_hash = self._hash_api_key(raw_api_key)
+        key_prefix = self._get_key_prefix(raw_api_key)
         
         # Calculate expiration
         expires_at = None
         if key_data.expires_in_days:
             expires_at = datetime.utcnow() + timedelta(days=key_data.expires_in_days)
         
-        # Create model
-        api_key_model = APIKeyModel(
-            key_id=key_id,
+        # Create database record
+        db_key = APIKey(
             key_hash=key_hash,
+            key_prefix=key_prefix,
             name=key_data.name,
             description=key_data.description,
-            user_id=user_id,
-            organization_id=organization_id,
-            scopes=key_data.scopes,
-            allowed_ips=key_data.allowed_ips,
-            allowed_origins=key_data.allowed_origins,
+            scopes=key_data.scopes or ["read"],
+            rate_limit=key_data.rate_limit or 1000,
+            ip_whitelist=key_data.ip_whitelist or [],
             expires_at=expires_at,
-            rate_limit=key_data.rate_limit,
-            metadata=key_data.metadata
+            metadata_=key_data.metadata or {}
         )
         
         try:
-            # Insert into database
-            result = await self.collection.insert_one(
-                api_key_model.model_dump(by_alias=True, exclude={"id"})
-            )
-            api_key_model.id = str(result.inserted_id)
+            self.db.add(db_key)
+            await self.db.commit()
+            await self.db.refresh(db_key)
             
-            logger.info(
-                f"Created API key {key_id} for user {user_id}",
-                extra={"key_id": key_id, "user_id": user_id}
-            )
+            logger.info(f"Created new API key: {db_key.name} (ID: {db_key.id})")
             
-            # Return with secret (only time it's shown)
-            return APIKeyWithSecret(
-                api_key=api_key,
-                key_id=key_id,
-                name=api_key_model.name,
-                description=api_key_model.description,
-                scopes=api_key_model.scopes,
-                status=api_key_model.status,
-                created_at=api_key_model.created_at,
-                expires_at=api_key_model.expires_at,
-                last_used_at=api_key_model.last_used_at,
-                usage_count=api_key_model.usage_count,
-                rate_limit=api_key_model.rate_limit
+            response = APIKeyResponse(
+                id=str(db_key.id),
+                name=db_key.name,
+                description=db_key.description,
+                key_prefix=db_key.key_prefix,
+                scopes=db_key.scopes,
+                rate_limit=db_key.rate_limit,
+                ip_whitelist=db_key.ip_whitelist,
+                is_active=db_key.is_active,
+                expires_at=db_key.expires_at,
+                created_at=db_key.created_at,
+                updated_at=db_key.updated_at,
+                last_used_at=db_key.last_used_at
             )
             
-        except DuplicateKeyError:
-            # Extremely unlikely but handle collision
-            logger.error(f"API key ID collision: {key_id}")
-            raise ValidationError("API key generation failed, please try again")
+            return response, raw_api_key
+            
+        except IntegrityError as e:
+            await self.db.rollback()
+            logger.error(f"Duplicate API key: {e}")
+            raise ValidationError("API key generation failed. Please try again.")
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Failed to create API key: {e}")
+            raise
     
     async def validate_api_key(
-        self,
-        api_key: str,
-        required_scopes: Optional[List[APIKeyScope]] = None,
-        client_ip: Optional[str] = None,
-        origin: Optional[str] = None
-    ) -> APIKeyValidation:
+        self, 
+        api_key: str, 
+        required_scopes: Optional[List[str]] = None,
+        ip_address: Optional[str] = None
+    ) -> APIKey:
         """
-        Validate an API key
+        Validate an API key and check permissions
         
         Args:
-            api_key: The API key to validate
-            required_scopes: Optional required scopes
-            client_ip: Optional client IP for validation
-            origin: Optional origin for validation
+            api_key: The raw API key to validate
+            required_scopes: Optional list of required scopes
+            ip_address: Optional IP address to check against whitelist
             
         Returns:
-            Validation result
+            APIKey model if valid
+            
+        Raises:
+            AuthenticationError: If key is invalid
+            AuthorizationError: If key lacks required permissions
         """
-        # Check format
-        if not self.KEY_PATTERN.match(api_key):
-            return APIKeyValidation(
-                valid=False,
-                reason="Invalid API key format"
-            )
+        # Validate format
+        if not self._validate_api_key_format(api_key):
+            raise AuthenticationError("Invalid API key format")
         
-        # Hash the key
+        # Hash the key for lookup
         key_hash = self._hash_api_key(api_key)
         
-        # Check cache first
-        if self.redis_client:
-            cached = await self._get_cached_key(key_hash)
-            if cached:
-                record_cache_hit("api_key")
-                api_key_model = APIKeyModel(**cached)
-            else:
-                record_cache_miss("api_key")
-                api_key_model = await self._get_key_from_db(key_hash)
-                if api_key_model:
-                    await self._cache_key(key_hash, api_key_model)
-        else:
-            api_key_model = await self._get_key_from_db(key_hash)
+        # Find the key in database
+        stmt = select(APIKey).where(APIKey.key_hash == key_hash)
+        result = await self.db.execute(stmt)
+        db_key = result.scalar_one_or_none()
         
-        # Key not found
-        if not api_key_model:
-            return APIKeyValidation(
-                valid=False,
-                reason="Invalid API key"
-            )
+        if not db_key:
+            raise AuthenticationError("Invalid API key")
         
-        # Check if key is valid
-        if not api_key_model.is_valid():
-            reason = "API key is inactive"
-            if api_key_model.status == APIKeyStatus.EXPIRED:
-                reason = "API key has expired"
-            elif api_key_model.status == APIKeyStatus.REVOKED:
-                reason = "API key has been revoked"
-            
-            return APIKeyValidation(
-                valid=False,
-                key_id=api_key_model.key_id,
-                reason=reason
-            )
+        # Check if active
+        if not db_key.is_active:
+            raise AuthenticationError("API key is inactive")
+        
+        # Check expiration
+        if db_key.is_expired():
+            raise AuthenticationError("API key has expired")
         
         # Check IP whitelist
-        if client_ip and not api_key_model.is_ip_allowed(client_ip):
-            return APIKeyValidation(
-                valid=False,
-                key_id=api_key_model.key_id,
-                reason=f"IP address {client_ip} not allowed"
-            )
-        
-        # Check origin
-        if origin and not api_key_model.is_origin_allowed(origin):
-            return APIKeyValidation(
-                valid=False,
-                key_id=api_key_model.key_id,
-                reason=f"Origin {origin} not allowed"
-            )
+        if db_key.ip_whitelist and ip_address:
+            if ip_address not in db_key.ip_whitelist:
+                raise AuthorizationError(f"IP address {ip_address} not authorized")
         
         # Check required scopes
-        if required_scopes and not api_key_model.has_any_scope(required_scopes):
-            return APIKeyValidation(
-                valid=False,
-                key_id=api_key_model.key_id,
-                reason=f"Missing required scopes: {required_scopes}"
-            )
+        if required_scopes:
+            missing_scopes = [s for s in required_scopes if not db_key.has_scope(s)]
+            if missing_scopes:
+                raise AuthorizationError(f"Missing required scopes: {', '.join(missing_scopes)}")
         
-        # Update usage
-        await self._update_usage(api_key_model.key_id)
-        
-        return APIKeyValidation(
-            valid=True,
-            key_id=api_key_model.key_id,
-            user_id=api_key_model.user_id,
-            scopes=api_key_model.scopes,
-            rate_limit=api_key_model.rate_limit,
-            metadata=api_key_model.metadata
+        # Update last used timestamp
+        stmt = update(APIKey).where(APIKey.id == db_key.id).values(
+            last_used_at=datetime.utcnow()
         )
+        await self.db.execute(stmt)
+        await self.db.commit()
+        
+        return db_key
     
-    async def get_api_key(self, key_id: str) -> Optional[APIKeyResponse]:
-        """
-        Get API key by ID (without secret)
+    async def get_api_key(self, key_id: str) -> APIKeyResponse:
+        """Get API key by ID"""
+        stmt = select(APIKey).where(APIKey.id == int(key_id))
+        result = await self.db.execute(stmt)
+        db_key = result.scalar_one_or_none()
         
-        Args:
-            key_id: The key ID
-            
-        Returns:
-            API key information or None
-        """
-        result = await self.collection.find_one({"key_id": key_id})
-        
-        if not result:
-            return None
-        
-        api_key_model = APIKeyModel(**result)
+        if not db_key:
+            raise NotFoundError(f"API key not found: {key_id}")
         
         return APIKeyResponse(
-            key_id=api_key_model.key_id,
-            name=api_key_model.name,
-            description=api_key_model.description,
-            scopes=api_key_model.scopes,
-            status=api_key_model.status,
-            created_at=api_key_model.created_at,
-            expires_at=api_key_model.expires_at,
-            last_used_at=api_key_model.last_used_at,
-            usage_count=api_key_model.usage_count,
-            rate_limit=api_key_model.rate_limit
+            id=str(db_key.id),
+            name=db_key.name,
+            description=db_key.description,
+            key_prefix=db_key.key_prefix,
+            scopes=db_key.scopes,
+            rate_limit=db_key.rate_limit,
+            ip_whitelist=db_key.ip_whitelist,
+            is_active=db_key.is_active,
+            expires_at=db_key.expires_at,
+            created_at=db_key.created_at,
+            updated_at=db_key.updated_at,
+            last_used_at=db_key.last_used_at
         )
     
-    async def list_user_keys(
-        self,
-        user_id: str,
-        include_inactive: bool = False
+    async def list_api_keys(
+        self, 
+        skip: int = 0, 
+        limit: int = 100,
+        is_active: Optional[bool] = None
     ) -> List[APIKeyResponse]:
-        """
-        List all API keys for a user
+        """List all API keys with optional filtering"""
+        stmt = select(APIKey).offset(skip).limit(limit)
         
-        Args:
-            user_id: The user ID
-            include_inactive: Whether to include inactive keys
-            
-        Returns:
-            List of API keys
-        """
-        query = {"user_id": user_id}
-        if not include_inactive:
-            query["status"] = APIKeyStatus.ACTIVE
+        if is_active is not None:
+            stmt = stmt.where(APIKey.is_active == is_active)
         
-        cursor = self.collection.find(query).sort("created_at", -1)
-        keys = []
+        result = await self.db.execute(stmt)
+        db_keys = result.scalars().all()
         
-        async for doc in cursor:
-            api_key_model = APIKeyModel(**doc)
-            keys.append(APIKeyResponse(
-                key_id=api_key_model.key_id,
-                name=api_key_model.name,
-                description=api_key_model.description,
-                scopes=api_key_model.scopes,
-                status=api_key_model.status,
-                created_at=api_key_model.created_at,
-                expires_at=api_key_model.expires_at,
-                last_used_at=api_key_model.last_used_at,
-                usage_count=api_key_model.usage_count,
-                rate_limit=api_key_model.rate_limit
-            ))
-        
-        return keys
-    
-    async def update_api_key(
-        self,
-        key_id: str,
-        user_id: str,
-        update_data: APIKeyUpdate
-    ) -> Optional[APIKeyResponse]:
-        """
-        Update an API key
-        
-        Args:
-            key_id: The key ID to update
-            user_id: The user ID (for ownership verification)
-            update_data: Update data
-            
-        Returns:
-            Updated API key or None
-        """
-        # Build update dict
-        update_dict = {
-            "updated_at": datetime.utcnow()
-        }
-        
-        if update_data.name is not None:
-            update_dict["name"] = update_data.name
-        if update_data.description is not None:
-            update_dict["description"] = update_data.description
-        if update_data.scopes is not None:
-            update_dict["scopes"] = update_data.scopes
-        if update_data.allowed_ips is not None:
-            update_dict["allowed_ips"] = update_data.allowed_ips
-        if update_data.allowed_origins is not None:
-            update_dict["allowed_origins"] = update_data.allowed_origins
-        if update_data.status is not None:
-            update_dict["status"] = update_data.status
-        if update_data.rate_limit is not None:
-            update_dict["rate_limit"] = update_data.rate_limit
-        if update_data.metadata is not None:
-            update_dict["metadata"] = update_data.metadata
-        
-        # Update in database
-        result = await self.collection.find_one_and_update(
-            {"key_id": key_id, "user_id": user_id},
-            {"$set": update_dict},
-            return_document=True
-        )
-        
-        if not result:
-            return None
-        
-        # Clear cache
-        if self.redis_client:
-            api_key_model = APIKeyModel(**result)
-            await self._clear_cache(api_key_model.key_hash)
-        
-        api_key_model = APIKeyModel(**result)
-        
-        logger.info(
-            f"Updated API key {key_id}",
-            extra={"key_id": key_id, "user_id": user_id}
-        )
-        
-        return APIKeyResponse(
-            key_id=api_key_model.key_id,
-            name=api_key_model.name,
-            description=api_key_model.description,
-            scopes=api_key_model.scopes,
-            status=api_key_model.status,
-            created_at=api_key_model.created_at,
-            expires_at=api_key_model.expires_at,
-            last_used_at=api_key_model.last_used_at,
-            usage_count=api_key_model.usage_count,
-            rate_limit=api_key_model.rate_limit
-        )
-    
-    async def revoke_api_key(self, key_id: str, user_id: str) -> bool:
-        """
-        Revoke an API key
-        
-        Args:
-            key_id: The key ID to revoke
-            user_id: The user ID (for ownership verification)
-            
-        Returns:
-            True if revoked, False if not found
-        """
-        result = await self.collection.find_one_and_update(
-            {"key_id": key_id, "user_id": user_id},
-            {
-                "$set": {
-                    "status": APIKeyStatus.REVOKED,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        if result:
-            # Clear cache
-            if self.redis_client:
-                api_key_model = APIKeyModel(**result)
-                await self._clear_cache(api_key_model.key_hash)
-            
-            logger.info(
-                f"Revoked API key {key_id}",
-                extra={"key_id": key_id, "user_id": user_id}
+        return [
+            APIKeyResponse(
+                id=str(key.id),
+                name=key.name,
+                description=key.description,
+                key_prefix=key.key_prefix,
+                scopes=key.scopes,
+                rate_limit=key.rate_limit,
+                ip_whitelist=key.ip_whitelist,
+                is_active=key.is_active,
+                expires_at=key.expires_at,
+                created_at=key.created_at,
+                updated_at=key.updated_at,
+                last_used_at=key.last_used_at
             )
-            return True
-        
-        return False
+            for key in db_keys
+        ]
     
-    async def _get_key_from_db(self, key_hash: str) -> Optional[APIKeyModel]:
-        """Get API key from database by hash"""
-        result = await self.collection.find_one({"key_hash": key_hash})
-        return APIKeyModel(**result) if result else None
+    async def update_api_key(self, key_id: str, update_data: APIKeyUpdate) -> APIKeyResponse:
+        """Update an existing API key"""
+        # Get existing key
+        stmt = select(APIKey).where(APIKey.id == int(key_id))
+        result = await self.db.execute(stmt)
+        db_key = result.scalar_one_or_none()
+        
+        if not db_key:
+            raise NotFoundError(f"API key not found: {key_id}")
+        
+        # Update fields
+        update_dict = update_data.dict(exclude_unset=True)
+        
+        if update_dict:
+            stmt = update(APIKey).where(APIKey.id == int(key_id)).values(**update_dict)
+            await self.db.execute(stmt)
+            await self.db.commit()
+            await self.db.refresh(db_key)
+        
+        logger.info(f"Updated API key: {db_key.name} (ID: {key_id})")
+        
+        return await self.get_api_key(key_id)
     
-    async def _get_cached_key(self, key_hash: str) -> Optional[Dict[str, Any]]:
-        """Get API key from cache"""
-        if not self.redis_client:
-            return None
+    async def delete_api_key(self, key_id: str) -> bool:
+        """Delete an API key"""
+        stmt = delete(APIKey).where(APIKey.id == int(key_id))
+        result = await self.db.execute(stmt)
+        await self.db.commit()
         
-        try:
-            data = await self.redis_client.get(f"{self.CACHE_PREFIX}{key_hash}")
-            if data:
-                import json
-                return json.loads(data)
-        except Exception as e:
-            logger.error(f"Cache get error: {str(e)}")
+        if result.rowcount == 0:
+            raise NotFoundError(f"API key not found: {key_id}")
         
-        return None
+        logger.info(f"Deleted API key: {key_id}")
+        return True
     
-    async def _cache_key(self, key_hash: str, api_key: APIKeyModel):
-        """Cache API key"""
-        if not self.redis_client:
-            return
-        
-        try:
-            import json
-            data = json.dumps(api_key.model_dump(mode="json"))
-            await self.redis_client.setex(
-                f"{self.CACHE_PREFIX}{key_hash}",
-                self.CACHE_TTL,
-                data
+    async def cleanup_expired_keys(self) -> int:
+        """Remove expired API keys"""
+        stmt = delete(APIKey).where(
+            and_(
+                APIKey.expires_at.isnot(None),
+                APIKey.expires_at < datetime.utcnow()
             )
-        except Exception as e:
-            logger.error(f"Cache set error: {str(e)}")
-    
-    async def _clear_cache(self, key_hash: str):
-        """Clear API key from cache"""
-        if not self.redis_client:
-            return
-        
-        try:
-            await self.redis_client.delete(f"{self.CACHE_PREFIX}{key_hash}")
-        except Exception as e:
-            logger.error(f"Cache delete error: {str(e)}")
-    
-    async def _update_usage(self, key_id: str):
-        """Update API key usage statistics"""
-        await self.collection.update_one(
-            {"key_id": key_id},
-            {
-                "$inc": {"usage_count": 1},
-                "$set": {"last_used_at": datetime.utcnow()}
-            }
         )
+        result = await self.db.execute(stmt)
+        await self.db.commit()
+        
+        count = result.rowcount
+        if count > 0:
+            logger.info(f"Cleaned up {count} expired API keys")
+        
+        return count

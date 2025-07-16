@@ -6,7 +6,7 @@ This module exports all available routers for the FastAPI application.
 
 # Import all routers
 from . import (
-    auth,
+    # auth,  # 임시 비활성화 - Oracle DB 연동 중
     face_login_router,
     chatbot_router,
     video_recommend_router,
@@ -16,7 +16,7 @@ from . import (
 
 # Export for easy access
 __all__ = [
-    "auth",
+    # "auth",  # 임시 비활성화 - Oracle DB 연동 중
     "face_login_router",
     "chatbot_router", 
     "video_recommend_router",
