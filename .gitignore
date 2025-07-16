@@ -112,5 +112,6 @@ uploads/*
 ehthumbs.db
 Thumbs.db
 
-# 대용량 파일 및 폴더
-# (이미 위에서 models/ 폴더가 제외됨)
+
+# 💡 ChromaDB persistent data
+/chroma_data/

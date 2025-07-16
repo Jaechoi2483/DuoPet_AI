@@ -22,6 +22,10 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+
+
+
+
 from common.config import get_settings
 from common.logger import get_logger
 from common.response import (
@@ -59,6 +63,7 @@ from api.routers import (
     chatbot_router,
     video_recommend_router,
     health_diagnosis_router,
+    admin_router,
     behavior_analysis_router
 )
 
@@ -288,6 +293,9 @@ async def metrics():
 #     tags=["Authentication"]
 # )  # 임시 비활성화 - Oracle DB 연동 중
 
+# 다른 라우터 등록 코드 아래에 추가합니다.
+app.include_router(admin_router.router, prefix="/api/v1")
+
 app.include_router(
     face_login_router.router,
     prefix="/api/v1/face-login",
@@ -379,6 +387,9 @@ async def periodic_model_update():
             # TODO: Implement model update logic
         except Exception as e:
             logger.error(f"Error in periodic model update: {str(e)}")
+
+
+
 
 
 if __name__ == "__main__":

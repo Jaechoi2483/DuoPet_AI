@@ -64,3 +64,4 @@ selenium
 webdriver-manager
 pydantic-settings
 oracledb
+ko-spell-check
