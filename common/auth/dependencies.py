@@ -13,9 +13,10 @@ from fastapi.security import APIKeyHeader, APIKeyQuery, APIKeyCookie
 from common.config import get_settings
 from common.logger import get_logger
 from common.exceptions import AuthenticationError, AuthorizationError
-from common.database import get_mongo_db, get_redis_client
+from common.database_sqlalchemy import get_db
 from .service import APIKeyService
 from .models import APIKeyScope, APIKeyValidation
+from .models_sqlalchemy import APIKey as APIKeyModel
 from typing import TypedDict, List
 
 settings = get_settings()

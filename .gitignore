@@ -31,6 +31,8 @@ env/
 # IDE
 .vscode/
 .idea/
+.claude/
+.cursor/
 *.swp
 *.swo
 *~
@@ -41,6 +43,7 @@ env/
 # Environment variables
 .env
 .env.local
+.env.example
 .env.*.local
 
 # Logs
@@ -49,15 +52,14 @@ logs/
 *.log.*
 
 # Models and Data
-models/*.pth
-models/*.pt
-models/*.h5
-models/*.onnx
+# 모든 모델 파일과 하위 폴더 제외
+models/
+!models/.gitkeep
+!models/README.md
 data/raw/*
 data/processed/*
 data/cache/*
 !data/.gitkeep
-!models/.gitkeep
 
 # Temporary files
 *.tmp
@@ -109,6 +111,7 @@ uploads/*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
 
 # 💡 ChromaDB persistent data
 /chroma_data/

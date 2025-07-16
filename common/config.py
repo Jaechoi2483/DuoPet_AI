@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     API_WORKERS: int = Field(default=4)
     
     # Security
-    API_SECRET_KEY: str = Field(..., min_length=32)
-    API_KEY_SALT: str = Field(...)
+    API_SECRET_KEY: Optional[str] = Field(default="duopet-ai-secret-key-2024-change-in-production", min_length=32)
+    API_KEY_SALT: Optional[str] = Field(default="duopet-ai-salt-2024")
+    SECRET_KEY: Optional[str] = Field(default=None)  # JWT Secret from backend
     JWT_ALGORITHM: str = Field(default="HS256")
     JWT_EXPIRATION_DAYS: int = Field(default=30)
     
@@ -62,6 +63,10 @@ class Settings(BaseSettings):
     ORACLE_USER: Optional[str] = Field(default=None)
     ORACLE_PASSWORD: Optional[str] = Field(default=None)
     ORACLE_DSN: Optional[str] = Field(default=None)
+    ORACLE_HOST: Optional[str] = Field(default=None)
+    ORACLE_PORT: Optional[int] = Field(default=1521)
+    ORACLE_SERVICE: Optional[str] = Field(default=None)
+    DATABASE_URL: Optional[str] = Field(default=None)
     
     # Model Configuration
     MODEL_PATH: str = Field(default="/app/models")
@@ -106,9 +111,9 @@ class Settings(BaseSettings):
     # Feature Flags
     FEATURES_FACE_LOGIN_ENABLED: bool = Field(default=True)
 
-    CORS_ORIGINS: List[str] = Field(default=[])  # default 값은 원하는 대로 설정
-    ALLOWED_IMAGE_EXTENSIONS: List[str] = Field(default=[])
-    ALLOWED_VIDEO_EXTENSIONS: List[str] = Field(default=[])
+    # CORS_ORIGINS는 위에 이미 정의됨
+    # ALLOWED_IMAGE_EXTENSIONS는 위에 이미 정의됨
+    ALLOWED_VIDEO_EXTENSIONS: List[str] = Field(default=["mp4", "avi", "mov", "webm"])
 
     @field_validator('CORS_ORIGINS', 'ALLOWED_IMAGE_EXTENSIONS', 'ALLOWED_VIDEO_EXTENSIONS', mode='before')
     @classmethod
@@ -148,6 +153,12 @@ class Settings(BaseSettings):
     def max_upload_size_bytes(self) -> int:
         """Get max upload size in bytes"""
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    
+    def __init__(self, **kwargs):
+        """Initialize settings and compute ORACLE_DSN if not provided"""
+        super().__init__(**kwargs)
+        if not self.ORACLE_DSN and self.ORACLE_HOST and self.ORACLE_SERVICE:
+            self.ORACLE_DSN = f"{self.ORACLE_HOST}:{self.ORACLE_PORT}/{self.ORACLE_SERVICE}"
 
 
 class ModelConfig:

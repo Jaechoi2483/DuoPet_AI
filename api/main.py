@@ -52,14 +52,13 @@ from api.middleware import (
 from common.database import (
     connect_to_databases,
     close_database_connections,
-    check_mongodb_health,
-    check_redis_health,
-    check_oracle_health # 💡 Oracle 상태 확인 함수 추가
+    check_oracle_health  # Oracle DB만 사용
 )
+from common.database_sqlalchemy import init_db, close_db
 
 # Import routers
 from api.routers import (
-    auth,
+    # auth,  # 임시 비활성화 - Oracle DB 연동 중
     face_login_router,
     chatbot_router,
     video_recommend_router,
@@ -87,6 +86,8 @@ async def lifespan(app: FastAPI):
     # 1. 모든 데이터베이스 연결을 시도합니다.
     try:
         await connect_to_databases()
+        # SQLAlchemy 테이블 초기화
+        await init_db()
         logger.info("All database connections established")
     except Exception as e:
         # 연결 실패 시에도 서버가 죽지 않도록 로그만 남깁니다.
@@ -111,6 +112,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("=K Shutting down DuoPet AI Service...")
     await close_database_connections()
+    await close_db()
     logger.info("All database connections closed")
 
 
@@ -256,22 +258,18 @@ async def health_check():
     """
     Detailed health check endpoint
     """
-    # 💡 Oracle 상태 확인을 추가합니다.
-    mongodb_ok = await check_mongodb_health()
-    redis_ok = await check_redis_health()
+    # Oracle DB 상태 확인
     oracle_ok = await check_oracle_health()
 
-    # 💡 전체 상태 확인 로직에 Oracle을 포함합니다.
-    all_ok = mongodb_ok and redis_ok and oracle_ok
+    # 전체 상태는 Oracle DB 상태에 따라 결정
+    all_ok = oracle_ok
 
     health_status = {
         "status": "healthy" if all_ok else "degraded",
         "checks": {
             "api": "ok",
             "models": "ok",  # TODO: Implement actual model health check
-            "database_mongodb": "ok" if mongodb_ok else "error",
-            "database_oracle": "ok" if oracle_ok else "error",
-            "cache_redis": "ok" if redis_ok else "warning",  # Redis is optional
+            "database": "ok" if oracle_ok else "error"  # Oracle DB 상태
         }
     }
     return create_success_response(data=health_status)
@@ -289,11 +287,11 @@ async def metrics():
 
 
 # Include routers
-app.include_router(
-    auth.router,
-    prefix="/api/v1",
-    tags=["Authentication"]
-)
+# app.include_router(
+#     auth.router,
+#     prefix="/api/v1",
+#     tags=["Authentication"]
+# )  # 임시 비활성화 - Oracle DB 연동 중
 
 # 다른 라우터 등록 코드 아래에 추가합니다.
 app.include_router(admin_router.router, prefix="/api/v1")
