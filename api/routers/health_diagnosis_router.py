@@ -55,11 +55,11 @@ async def analyze_health(
     # 3. Run YOLOv12 for disease area detection
     # 4. Run EfficientNet for disease classification
     # 5. Generate health recommendations
-    
+
     result = HealthDiagnosisResult(
         detections=[],
         overall_health_score=85.0,
-        recommendations=["0x t ��D <8�"],
+        recommendations=["정기적인 건강 검진을 받아보는 것을 권장합니다."],
         requires_vet_visit=False
     )
     
@@ -74,32 +74,32 @@ async def get_supported_diseases():
     diseases = [
         {
             "id": "skin_disease",
-            "name": "<� �X",
-            "description": "��, <��, Ȩ �",
+            "name": "피부 질환",
+            "description": "발진, 가려움, 염증 등 피부 관련 질환",
             "detectable": True
         },
         {
             "id": "eye_infection",
-            "name": "Hl �",
-            "description": "���, �� �",
+            "name": "눈 감염",
+            "description": "눈물, 충혈 등 안구 관련 질환",
             "detectable": True
         },
         {
             "id": "ear_infection",
-            "name": "� �",
-            "description": "xt�, t� �",
+            "name": "귀 감염",
+            "description": "귀지, 냄새 등 귀 관련 질환",
             "detectable": True
         },
         {
             "id": "dental_disease",
-            "name": "X� �X",
-            "description": "X, X@� �",
+            "name": "치과 질환",
+            "description": "치석, 치주염 등 구강 관련 질환",
             "detectable": True
         },
         {
             "id": "obesity",
-            "name": "D�",
-            "description": "�� ��",
+            "name": "비만",
+            "description": "체중 관리가 필요한 과체중 상태",
             "detectable": True
         }
     ]
