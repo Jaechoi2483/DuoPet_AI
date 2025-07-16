@@ -11,6 +11,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
+from services.chatbot.predict import RAGChatbot
+
+from api.routers.chatbot_router import TARGET_URL
+
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -21,7 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from common.config import get_settings
 from common.logger import get_logger
 from common.response import (
-    create_success_response, 
+    create_success_response,
     create_error_response,
     ErrorCode,
     StandardResponse
@@ -39,6 +43,14 @@ from api.middleware import (
     APIKeyAuthMiddleware,
     RateLimitMiddleware,
     SecurityHeadersMiddleware
+)
+# 💡 database.py에서 사용할 함수들을 가져옵니다.
+from common.database import (
+    connect_to_databases,
+    close_database_connections,
+    check_mongodb_health,
+    check_redis_health,
+    check_oracle_health # 💡 Oracle 상태 확인 함수 추가
 )
 
 # Import routers
@@ -62,33 +74,39 @@ async def lifespan(app: FastAPI):
     Manage application lifecycle events
     """
     # Startup
-    logger.info("=  Starting DuoPet AI Service...")
+
+    logger.info("= Starting DuoPet AI Service...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
-    
-    # Initialize models, connections, etc.
-    from common.database import connect_mongodb, connect_redis, close_connections
-    
+
+    # 1. 모든 데이터베이스 연결을 시도합니다.
     try:
-        # Initialize database connections
-        await connect_mongodb()
-        await connect_redis()
-        logger.info("Database connections established")
+        await connect_to_databases()
+        logger.info("All database connections established")
     except Exception as e:
-        logger.error(f"Failed to initialize database connections: {str(e)}")
-        # Continue anyway - some endpoints might still work
-    
-    # Start background tasks
+        # 연결 실패 시에도 서버가 죽지 않도록 로그만 남깁니다.
+        logger.error(f"Failed to initialize one or more database connections: {str(e)}")
+
+    # 2. RAG 챗봇을 단 한 번만 초기화하여 앱 상태에 저장합니다.
+    try:
+        logger.info("Initializing RAG Chatbot... (This may take a moment)")
+        # 무거운 초기화 로직을 여기서 실행합니다.
+        chatbot_instance = RAGChatbot(site_url=TARGET_URL)
+        app.state.chatbot = chatbot_instance
+        logger.info("RAG Chatbot initialized successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize RAG Chatbot: {e}")
+        app.state.chatbot = None
+
+    # 3. 백그라운드 작업을 시작합니다.
     asyncio.create_task(collect_system_metrics())
-    # asyncio.create_task(periodic_model_update())
-    
+
     yield
-    
+
     # Shutdown
     logger.info("=K Shutting down DuoPet AI Service...")
-    # Cleanup resources
-    await close_connections()
-    logger.info("Database connections closed")
+    await close_database_connections()
+    logger.info("All database connections closed")
 
 
 # Create FastAPI app
@@ -147,7 +165,7 @@ async def catch_exceptions_middleware(request: Request, call_next):
             content=create_error_response(
                 error_code=ErrorCode.UNKNOWN_ERROR,
                 message="An unexpected error occurred"
-            ).model_dump()
+            )
         )
 
 
@@ -162,7 +180,7 @@ async def duopet_exception_handler(request: Request, exc: DuoPetException):
             error_code=exc.error_code,
             message=exc.message,
             detail=exc.detail
-        ).model_dump()
+        )
     )
 
 
@@ -177,7 +195,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             error_code=ErrorCode.VALIDATION_ERROR,
             message="Request validation failed",
             detail={"errors": errors}
-        ).model_dump()
+        )
     )
 
 
@@ -185,7 +203,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
     """Handle HTTP exceptions"""
     logger.warning(f"HTTP exception: {exc.status_code} - {exc.detail}")
-    
+
     # Map HTTP status codes to error codes
     error_code_map = {
         401: ErrorCode.AUTHENTICATION_ERROR,
@@ -194,15 +212,15 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         405: ErrorCode.METHOD_NOT_ALLOWED,
         429: ErrorCode.RATE_LIMIT_ERROR,
     }
-    
+
     error_code = error_code_map.get(exc.status_code, ErrorCode.UNKNOWN_ERROR)
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content=create_error_response(
             error_code=error_code,
             message=str(exc.detail)
-        ).model_dump()
+        )
     )
 
 
@@ -233,22 +251,22 @@ async def health_check():
     """
     Detailed health check endpoint
     """
-    from common.database import check_mongodb_health, check_redis_health
-    
-    # Check database health
+    # 💡 Oracle 상태 확인을 추가합니다.
     mongodb_ok = await check_mongodb_health()
     redis_ok = await check_redis_health()
-    
-    # Overall health status
-    all_ok = mongodb_ok and redis_ok
-    
+    oracle_ok = await check_oracle_health()
+
+    # 💡 전체 상태 확인 로직에 Oracle을 포함합니다.
+    all_ok = mongodb_ok and redis_ok and oracle_ok
+
     health_status = {
         "status": "healthy" if all_ok else "degraded",
         "checks": {
             "api": "ok",
             "models": "ok",  # TODO: Implement actual model health check
-            "database": "ok" if mongodb_ok else "error",
-            "cache": "ok" if redis_ok else "warning",  # Redis is optional
+            "database_mongodb": "ok" if mongodb_ok else "error",
+            "database_oracle": "ok" if oracle_ok else "error",
+            "cache_redis": "ok" if redis_ok else "warning",  # Redis is optional
         }
     }
     return create_success_response(data=health_status)
@@ -258,7 +276,7 @@ async def health_check():
 async def metrics():
     """
     Prometheus metrics endpoint
-    
+
     Returns metrics in Prometheus text format
     """
     metrics_data = get_metrics()
@@ -323,7 +341,7 @@ if settings.DEBUG:
             }
         }
         return create_success_response(data=config_data)
-    
+
     @app.post("/debug/error-test/{error_code}", response_model=StandardResponse)
     async def debug_error_test(error_code: str):
         """Test error responses (DEBUG only)"""
@@ -331,7 +349,7 @@ if settings.DEBUG:
             ValidationError, AuthenticationError, NotFoundError,
             ModelNotLoadedError, FaceNotDetectedError
         )
-        
+
         error_map = {
             "validation": ValidationError("Test validation error", {"field": "test"}),
             "auth": AuthenticationError("Test authentication error"),
@@ -339,12 +357,12 @@ if settings.DEBUG:
             "model": ModelNotLoadedError("test-model"),
             "face": FaceNotDetectedError(),
         }
-        
+
         if error_code in error_map:
             raise error_map[error_code]
-        
+
         return create_success_response(data={"message": "No error raised"})
-    
+
     @app.get("/debug/metrics-summary", response_model=StandardResponse)
     async def debug_metrics_summary():
         """Get metrics summary (DEBUG only)"""
@@ -367,7 +385,9 @@ async def periodic_model_update():
 
 if __name__ == "__main__":
     import uvicorn
-    
+    import os
+
+    print(f"현재 작업 디렉터리: {os.getcwd()}")
     uvicorn.run(
         "api.main:app",
         host=settings.API_HOST,

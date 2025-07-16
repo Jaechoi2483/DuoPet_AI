@@ -10,9 +10,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from fastapi.responses import JSONResponse
 
+from common.auth.dependencies import CurrentAPIKey
 from common.response import create_success_response, create_error_response, ErrorCode
 from common.logger import get_logger
-from common.database import get_database, get_redis_client
+from common.database import get_mongo_db, get_redis_client
 from common.exceptions import NotFoundError, ValidationError, AuthorizationError
 from common.auth import (
     APIKeyService,
@@ -22,9 +23,7 @@ from common.auth import (
     APIKeyWithSecret,
     APIKeyStatus,
     APIKeyScope,
-    get_current_api_key,
-    CurrentAPIKey,
-    RequireAdminScope
+    get_current_api_key
 )
 
 router = APIRouter(
@@ -54,7 +53,7 @@ async def create_api_key(
 ) -> JSONResponse:
     """
     Create a new API key.
-    
+
     Requires admin scope or appropriate permissions.
     Returns the full API key only once - it cannot be retrieved again.
     """
@@ -67,19 +66,19 @@ async def create_api_key(
                     raise AuthorizationError(
                         f"Cannot grant scope '{scope}' - you don't have this permission"
                     )
-        
+
         # Get database and service
-        db = await get_database()
+        db = await get_mongo_db()
         redis_client = await get_redis_client()
         service = APIKeyService(db, redis_client)
-        
+
         # Create API key
         api_key = await service.create_api_key(
             user_id=current_user["user_id"],
             key_data=key_data,
             organization_id=current_user.get("metadata", {}).get("organization_id")
         )
-        
+
         logger.info(
             f"Created API key {api_key.key_id} for user {current_user['user_id']}",
             extra={
@@ -89,12 +88,12 @@ async def create_api_key(
                 "request_id": getattr(request.state, "request_id", None)
             }
         )
-        
+
         return create_success_response(
             data=api_key.model_dump(),
             message="API key created successfully. Save the key securely - it won't be shown again."
         )
-        
+
     except AuthorizationError as e:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -130,21 +129,21 @@ async def list_api_keys(
 ) -> JSONResponse:
     """
     List all API keys for the authenticated user.
-    
+
     By default, only active keys are returned.
     """
     try:
         # Get database and service
-        db = await get_database()
+        db = await get_mongo_db()
         redis_client = await get_redis_client()
         service = APIKeyService(db, redis_client)
-        
+
         # Get user's keys
         keys = await service.list_user_keys(
             user_id=current_user["user_id"],
             include_inactive=include_inactive
         )
-        
+
         logger.info(
             f"Listed {len(keys)} API keys for user {current_user['user_id']}",
             extra={
@@ -154,12 +153,12 @@ async def list_api_keys(
                 "request_id": getattr(request.state, "request_id", None)
             }
         )
-        
+
         return create_success_response(
             data=[key.model_dump() for key in keys],
             metadata={"total": len(keys), "include_inactive": include_inactive}
         )
-        
+
     except Exception as e:
         logger.error(
             f"Failed to list API keys: {str(e)}",
@@ -185,29 +184,25 @@ async def get_api_key(
 ) -> JSONResponse:
     """
     Get details of a specific API key.
-    
+
     Users can only access their own keys unless they have admin scope.
     """
     try:
         # Get database and service
-        db = await get_database()
+        db = await get_mongo_db()
         redis_client = await get_redis_client()
         service = APIKeyService(db, redis_client)
-        
+
         # Get key details
         key = await service.get_api_key(key_id)
-        
+
         if not key:
             raise NotFoundError(f"API key {key_id} not found")
-        
+
         # Check permissions
-        # Admin can see any key, others can only see their own
-        if APIKeyScope.ADMIN not in current_user["scopes"]:
-            # Need to check if this key belongs to the user
-            # For now, we'll need to add user_id to the response model
-            # This is a limitation of the current implementation
-            pass
-        
+        if APIKeyScope.ADMIN not in current_user["scopes"] and key.user_id != current_user["user_id"]:
+             raise NotFoundError(f"API key {key_id} not found or access denied")
+
         logger.info(
             f"Retrieved API key details for {key_id}",
             extra={
@@ -216,9 +211,9 @@ async def get_api_key(
                 "request_id": getattr(request.state, "request_id", None)
             }
         )
-        
+
         return create_success_response(data=key.model_dump())
-        
+
     except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -250,7 +245,7 @@ async def update_api_key(
 ) -> JSONResponse:
     """
     Update an API key's settings.
-    
+
     Users can only update their own keys.
     Changing scopes requires appropriate permissions.
     """
@@ -262,22 +257,22 @@ async def update_api_key(
                     raise AuthorizationError(
                         f"Cannot grant scope '{scope}' - you don't have this permission"
                     )
-        
+
         # Get database and service
-        db = await get_database()
+        db = await get_mongo_db()
         redis_client = await get_redis_client()
         service = APIKeyService(db, redis_client)
-        
+
         # Update key
         updated_key = await service.update_api_key(
             key_id=key_id,
             user_id=current_user["user_id"],
             update_data=update_data
         )
-        
+
         if not updated_key:
             raise NotFoundError(f"API key {key_id} not found or access denied")
-        
+
         logger.info(
             f"Updated API key {key_id}",
             extra={
@@ -287,12 +282,12 @@ async def update_api_key(
                 "request_id": getattr(request.state, "request_id", None)
             }
         )
-        
+
         return create_success_response(
             data=updated_key.model_dump(),
             message="API key updated successfully"
         )
-        
+
     except (NotFoundError, AuthorizationError) as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND if isinstance(e, NotFoundError) else status.HTTP_403_FORBIDDEN,
@@ -323,25 +318,25 @@ async def revoke_api_key(
 ):
     """
     Revoke an API key.
-    
+
     This action is permanent and cannot be undone.
     Users can only revoke their own keys.
     """
     try:
         # Get database and service
-        db = await get_database()
+        db = await get_mongo_db()
         redis_client = await get_redis_client()
         service = APIKeyService(db, redis_client)
-        
+
         # Revoke key
         success = await service.revoke_api_key(
             key_id=key_id,
             user_id=current_user["user_id"]
         )
-        
+
         if not success:
             raise NotFoundError(f"API key {key_id} not found or access denied")
-        
+
         logger.info(
             f"Revoked API key {key_id}",
             extra={
@@ -350,9 +345,9 @@ async def revoke_api_key(
                 "request_id": getattr(request.state, "request_id", None)
             }
         )
-        
+
         return None  # 204 No Content
-        
+
     except NotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -381,7 +376,7 @@ async def get_current_key_info(
 ) -> JSONResponse:
     """
     Get information about the currently authenticated API key.
-    
+
     This is useful for debugging and verifying permissions.
     """
     return create_success_response(
@@ -391,8 +386,7 @@ async def get_current_key_info(
             "scopes": current_user["scopes"],
             "rate_limit": current_user["rate_limit"],
             "metadata": current_user.get("metadata", {})
-        },
-        message="Current API key information"
+        }
     )
 
 

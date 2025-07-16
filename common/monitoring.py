@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 if settings.API_WORKERS > 1:
     # Use multiprocess mode for multiple workers
     registry = CollectorRegistry()
-    multiprocess.MultiProcessCollector(registry)
+    # multiprocess.MultiProcessCollector(registry)
 else:
     registry = CollectorRegistry()
 

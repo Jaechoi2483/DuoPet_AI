@@ -118,44 +118,44 @@ async def get_supported_behaviors():
     behaviors = [
         {
             "id": "walking",
-            "name": "w0",
-            "description": "�x w0 ��",
+            "name": "걷기",
+            "description": "일반적인 걷는 행동",
             "is_normal": True
         },
         {
             "id": "running",
-            "name": "�0",
-            "description": "�p� 쬔 ��",
+            "name": "달리기",
+            "description": "빠르게 뛰는 행동",
             "is_normal": True
         },
         {
             "id": "eating",
-            "name": "ݬ",
-            "description": "L�D 9� ��",
+            "name": "식사",
+            "description": "사료나 간식을 먹는 행동",
             "is_normal": True
         },
         {
             "id": "sleeping",
-            "name": "t",
-            "description": "��� ��",
+            "name": "수면",
+            "description": "잠을 자거나 쉬는 행동",
             "is_normal": True
         },
         {
             "id": "playing",
-            "name": "�t",
-            "description": "��� �p� \�x ��",
+            "name": "놀이",
+            "description": "장난감을 가지고 놀거나 활동적인 행동",
             "is_normal": True
         },
         {
             "id": "aggressive",
-            "name": "�� ��",
-            "description": "<tp�p� ��x �8",
+            "name": "공격성",
+            "description": "으르렁거리거나 위협하는 등 공격적인 행동",
             "is_normal": False
         },
         {
             "id": "anxious",
-            "name": "�H ��",
-            "description": "H�Xp� �x ��",
+            "name": "불안",
+            "description": "꼬리를 내리거나 낑낑거리는 등 불안을 나타내는 행동",
             "is_normal": False
         }
     ]
