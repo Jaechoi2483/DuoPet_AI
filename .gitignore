@@ -109,3 +109,6 @@ uploads/*
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# 💡 ChromaDB persistent data
+/chroma_data/

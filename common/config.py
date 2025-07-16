@@ -22,7 +22,9 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=True
     )
-    
+
+
+
     # Application
     APP_NAME: str = "DuoPet AI Service"
     APP_VERSION: str = "1.0.0"
@@ -45,7 +47,13 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = Field(default=None)
     YOUTUBE_API_KEY: Optional[str] = Field(default=None)
     PERPLEXITY_API_KEY: Optional[str] = Field(default=None)
-    
+
+    ADMIN_API_KEY: str
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding='utf-8'
+    )
     # Database
     MONGODB_URL: str = Field(default="mongodb://localhost:27017")
     MONGODB_DATABASE: str = Field(default="duopet_ai")
