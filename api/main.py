@@ -1,4 +1,5 @@
 """
+커밋용메세지
 DuoPet AI Service - Main FastAPI Application
 
 This is the main entry point for the DuoPet AI microservice.
@@ -73,6 +74,7 @@ async def lifespan(app: FastAPI):
     Manage application lifecycle events
     """
     # Startup
+
     logger.info("= Starting DuoPet AI Service...")
     logger.info(f"Environment: {settings.ENVIRONMENT}")
     logger.info(f"Debug mode: {settings.DEBUG}")
