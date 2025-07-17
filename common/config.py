@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     SPRING_BOOT_API_URL: str = "http://localhost:8080/api"
     SPRING_BOOT_API_KEY: Optional[str] = None
     SPRING_JWT_SECRET: Optional[str] = None
+    CHATBOT_TARGET_URL: str = "http://localhost:3000"
 
     # --- Feature Flags ---
     FEATURES_FACE_LOGIN_ENABLED: bool = True

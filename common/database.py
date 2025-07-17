@@ -32,6 +32,8 @@ _oracle_pool = None  # Optional[oracledb.Pool]
 _redis_client = None  # Optional[redis.Redis]
 
 
+
+
 # --- 통합 연결/종료 함수 ---
 
 async def connect_to_databases():

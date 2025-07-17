@@ -1,15 +1,15 @@
 # --------------------------------------------------------------------------
 # 파일명: services/chatbot/predict.py
-# 설명: 사이트 기능 목록에 공지사항 및 자유게시판을 추가하여 안내 기능 강화
+# 설명: 답변 생성 및 예상 질문 생성 로직 개선 (LLM 프롬프트 최적화 및 비동기 처리)
 # --------------------------------------------------------------------------
 import os
 import json
 import httpx
 import functools
-import time
+# import time # 사용되지 않으므로 제거
 import chromadb
 from bs4 import BeautifulSoup, NavigableString
-from openai import OpenAI
+from openai import AsyncOpenAI  # 💡 비동기 클라이언트로 변경
 from keybert import KeyBERT
 from urllib.parse import urljoin, urlparse
 from dotenv import load_dotenv
@@ -18,14 +18,20 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 from typing import List, Dict, Any
 from kospellcheck import SpellChecker
-# 💡 페이지 로드 대기를 위한 추가 임포트 (selenium.webdriver.support)
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
+from common.logger import get_logger  # 로깅을 위해 추가
+
+# logger 객체를 모듈 전역에서 사용하도록 정의합니다.
+logger = get_logger(__name__)
+
+global_chat_cache = {}
 
 # --- 환경 변수 로드 및 라이브러리 동작 수정 ---
 load_dotenv()
 
+# httpx.Client 동기 클라이언트 프록시 패치
 original_init = httpx.Client.__init__
 
 
@@ -38,12 +44,26 @@ def patched_init(self, *args, **kwargs):
 
 httpx.Client.__init__ = patched_init
 
+# httpx.AsyncClient 비동기 클라이언트 프록시 패치 (AsyncOpenAI가 사용하므로 다시 추가)
+original_async_init = httpx.AsyncClient.__init__
+
+
+@functools.wraps(original_async_init)
+def patched_async_init(self, *args, **kwargs):
+    if 'proxies' in kwargs:
+        del kwargs['proxies']
+    original_async_init(self, *args, **kwargs)
+
+
+httpx.AsyncClient.__init__ = patched_async_init
+
 api_key = os.environ.get("OPENAI_API_KEY")
 if not api_key:
     raise ValueError("🚨 OPENAI_API_KEY가 .env 파일에 설정되지 않았거나 비어 있습니다.")
 
 try:
-    client = OpenAI(api_key=api_key)
+    # 💡 비동기 요청을 위해 AsyncOpenAI 클라이언트를 사용합니다. (현재 코드를 따름)
+    client = AsyncOpenAI(api_key=api_key)
 except Exception as e:
     raise RuntimeError(f"🚨 OpenAI 클라이언트 초기화 실패: {e}")
 
@@ -51,7 +71,7 @@ except Exception as e:
 # --- RAG 챗봇 클래스 정의 ---
 class RAGChatbot:
     def __init__(self, site_url: str, max_crawl_pages: int = 10):
-        print("🤖 RAG 챗봇 초기화를 시작합니다...")
+        logger.info("🤖 RAG 챗봇 초기화를 시작합니다...")  # print -> logger.info
         self.site_url = site_url
         self.site_functions = [
             {"name": "notice_board", "description": "공지사항 확인하기", "url": "/notice"},
@@ -77,83 +97,81 @@ class RAGChatbot:
         self.base_url = f"{urlparse(self.site_url).scheme}://{urlparse(self.site_url).netloc}"
         self.max_crawl_pages = max_crawl_pages
 
-        print("KeyBERT 모델을 로딩 중입니다...")
+        self.excluded_paths = [
+
+
+            '/adoption'
+
+        ]
+
+        logger.info("KeyBERT 모델을 로딩 중입니다...")  # print -> logger.info
         self.kw_model = KeyBERT('paraphrase-multilingual-MiniLM-L12-v2')
-        print("모델 로딩 완료.")
+        logger.info("모델 로딩 완료.")  # print -> logger.info
 
-        # 💡 벡터 DB 설정 및 데이터 로딩 또는 크롤링
-        # ChromaDB 데이터가 저장될 경로 설정 (예: 프로젝트 루트의 'chroma_data' 폴더)
-        self.chroma_db_path = os.environ.get("CHROMA_DB_PATH", "./chroma_data")  # .env 파일에서 설정하거나 기본값 사용
-        self.db_collection = self._setup_vector_db()  # 컬렉션 로드 또는 생성
+        self.chroma_db_path = os.environ.get("CHROMA_DB_PATH", "./chroma_data")
+        self.db_collection = self._setup_vector_db()
 
-        # 지식 베이스가 비어있다면 크롤링 및 저장
         if self.db_collection.count() == 0:
-            print("⚠️ 기존 지식 베이스가 비어있습니다. 사이트 크롤링을 시작합니다...")
+            logger.warning("⚠️ 기존 지식 베이스가 비어있습니다. 사이트 크롤링을 시작합니다...")  # print -> logger.warning
             self.knowledge_base = self._create_kb_from_site()
             if not self.knowledge_base:
-                # 크롤링 후에도 지식 베이스가 비어있으면 초기화 실패로 간주
                 raise RuntimeError("지식 베이스 생성에 실패했습니다. URL과 사이트 내용을 확인해주세요.")
 
-            # 크롤링된 지식을 DB에 추가 (이미 삭제되었거나 비어있을 경우)
-            print(f"--- 🧠 크롤링된 지식 {len(self.knowledge_base)}개를 벡터 DB에 저장 중 ---")
+            logger.info(f"--- 🧠 크롤링된 지식 {len(self.knowledge_base)}개를 벡터 DB에 저장 중 ---")  # print -> logger.info
             self.db_collection.add(
                 documents=[doc['content'] for doc in self.knowledge_base],
                 metadatas=[doc['metadata'] for doc in self.knowledge_base],
                 ids=[doc['id'] for doc in self.knowledge_base]
             )
-            print(f"✅ 총 {self.db_collection.count()}개의 지식이 벡터 DB에 성공적으로 저장되었습니다.")
+            logger.info(f"✅ 총 {self.db_collection.count()}개의 지식이 벡터 DB에 성공적으로 저장되었습니다.")  # print -> logger.info
         else:
-            print(f"✅ 기존 벡터 DB에서 {self.db_collection.count()}개의 지식 로딩 완료. 크롤링을 건너뜀.")
-            # knowledge_base 변수는 _hybrid_retrieve 등에서 직접 사용되지 않으므로,
-            # DB에서 로드할 필요가 없다면 빈 리스트로 두거나 필요에 따라 적절히 처리합니다.
+            logger.info(f"✅ 기존 벡터 DB에서 {self.db_collection.count()}개의 지식 로딩 완료. 크롤링을 건너뜀.")  # print -> logger.info
             self.knowledge_base = []
 
     def _get_page_content(self, url: str) -> str:
-        """Selenium을 사용해 단일 페이지의 HTML 콘텐츠를 가져옵니다."""
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--log-level=3')
-        options.add_argument('--window-size=1920,1080')  # 헤드리스 모드에서 창 크기 지정 (일부 페이지 렌더링에 영향)
+        options.add_argument('--window-size=1920,1080')
 
         driver = None
         try:
             service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
 
-            print(f"  [Selenium] '{url}' 페이지로 이동 중...")
+            logger.info(f" [Selenium] '{url}' 페이지로 이동 중...")  # print -> logger.info
             driver.get(url)
 
-            # 💡 페이지 로드 완료를 위한 명시적 대기 조건 추가 (이전 답변에서 추가된 부분)
             try:
                 WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.TAG_NAME, "body"))
                 )
-                print("  [Selenium] 페이지 로드 완료 대기 성공.")
+                logger.info(" [Selenium] 페이지 로드 완료 대기 성공.")  # print -> logger.info
             except Exception as wait_e:
-                print(f"  [Selenium] 페이지 로드 대기 중 타임아웃 또는 오류 발생: {wait_e}")
-                # 그래도 page_source는 시도해 볼 수 있음
+                logger.warning(f" [Selenium] 페이지 로드 대기 중 타임아웃 또는 오류 발생: {wait_e}")  # print -> logger.warning
 
             html_content = driver.page_source
 
-            # 💡 가져온 HTML 콘텐츠를 출력하고 파일로 저장 (디버깅용, 필요 없다면 제거)
-            print(f"\n--- 가져온 HTML 콘텐츠 (상위 500자) ---\n{html_content[:500]}...\n---")
-            with open("crawled_page_content.html", "w", encoding="utf-8") as f:
-                f.write(html_content)
-            print(f"💡 가져온 HTML 콘텐츠를 'crawled_page_content.html' 파일에 저장했습니다.")
+            # 디버깅용 HTML 출력 및 파일 저장 (필요 없다면 제거)
+            logger.debug(f"\n--- 가져온 HTML 콘텐츠 (상위 500자) ---\n{html_content[:500]}...\n---")  # print -> logger.debug
+            # with open("crawled_page_content.html", "w", encoding="utf-8") as f:
+            #     f.write(html_content)
+            # logger.debug(f"💡 가져온 HTML 콘텐츠를 'crawled_page_content.html' 파일에 저장했습니다.") # print -> logger.debug
 
             return html_content
         except Exception as e:
-            print(f"🚨 '{url}' 페이지 크롤링 중 오류 발생: {e}")
+            logger.error(f"🚨 '{url}' 페이지 크롤링 중 오류 발생: {e}", exc_info=True)  # print -> logger.error
             return ""
         finally:
             if driver:
                 driver.quit()
 
+        # RAGChatbot 클래스 내부에 다른 메소드들과 함께 위치해야 합니다.
+
     def _create_kb_from_site(self) -> List[Dict[str, Any]]:
-        """사이트를 재귀적으로 크롤링하여 지식 베이스를 구축하고 상세 로그를 출력합니다."""
-        print(f"--- 🌐 사이트 전체 콘텐츠 추출 시작 (최대 {self.max_crawl_pages} 페이지) ---")
+        logger.info(f"--- 🌐 사이트 전체 콘텐츠 추출 시작 (최대 {self.max_crawl_pages} 페이지) ---")
 
         urls_to_visit = {self.site_url}
         visited_urls = set()
@@ -164,111 +182,105 @@ class RAGChatbot:
             if current_url in visited_urls:
                 continue
 
-            print(f"\n[크롤링 시작] -> {current_url}")
+            logger.info(f"\n[크롤링 시작] -> {current_url}")
             visited_urls.add(current_url)
             html_content = self._get_page_content(current_url)
             if not html_content:
-                print("  [결과] 페이지 콘텐츠를 가져오지 못했습니다.")
+                logger.warning(" [결과] 페이지 콘텐츠를 가져오지 못했습니다.")
                 continue
 
             soup = BeautifulSoup(html_content, 'html.parser')
             page_title = soup.title.string.strip() if soup.title else '제목 없음'
-            print(f"  [페이지 제목] {page_title}")
+            logger.info(f" [페이지 제목] {page_title}")
 
-            # 💡 콘텐츠 영역 탐색 태그 확장 (이전 디버깅 조언에 따름)
             content_area = soup.find('main') or soup.find('article') or soup.find('body')
-            if not content_area:  # body가 fallback으로 지정되었으므로 이 조건은 실제로 body가 비어있을 때만 작동
-                print("  [결과] 주요 콘텐츠 영역을 찾지 못했습니다. 전체 body에서 추출 시도.")
-                content_area = soup.body  # 명시적으로 body를 사용하도록 변경
+            if not content_area:
+                logger.warning(" [결과] 주요 콘텐츠 영역을 찾지 못했습니다. 전체 body에서 추출 시도.")
+                content_area = soup.body
 
             chunks_from_page = []
-            # 💡 텍스트를 추출할 태그 목록을 확장
             for element in content_area.find_all(
-                    ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'li', 'span', 'a', 'strong', 'em', 'dd', 'dt'],
-                    # 태그 확장
+                    ['h1', 'h2', 'h3', 'h4', 'p', 'div', 'li', 'span', 'a', 'strong', 'em', 'dd', 'dt'],
                     recursive=True
             ):
                 if isinstance(element, NavigableString): continue
                 text = element.get_text(separator=' ', strip=True)
-                # 💡 길이 제한 완화 및 불필요한 텍스트 필터링 강화
                 if len(text) > 15 and '\n' not in text and 'function' not in text.lower() and 'var' not in text.lower():
-                    # 너무 짧은 텍스트나 JS 코드처럼 보이는 텍스트 필터링
                     chunks_from_page.append(text)
 
             unique_chunks = list(dict.fromkeys(chunks_from_page))
 
             for i, chunk in enumerate(unique_chunks):
+                tags_list = []
+                try:
+                    tags_list = [kw for kw, score in self.kw_model.extract_keywords(chunk, top_n=3)]
+                except Exception as e:
+                    logger.warning(f"KeyBERT 태그 추출 중 오류 발생 (텍스트: '{chunk[:30]}...'): {e}")
+                    tags_list = []
+
+                tags_text = " ".join(tags_list)
+                content_with_tags = f"{chunk}\n\n[TAGS: {tags_text}]"
+
                 knowledge_base.append({
                     "id": f"{urlparse(current_url).path.replace('/', '_')}_{i}",
-                    "content": chunk,
+                    "content": content_with_tags,
                     "metadata": {"source": current_url, "title": page_title}
                 })
 
-            print(f"  [추출된 정보] {len(unique_chunks)}개의 텍스트 조각")
+            logger.info(f" [추출된 정보] {len(unique_chunks)}개의 텍스트 조각")
 
             found_links = set()
             for link in content_area.find_all('a', href=True):
                 href = link['href']
                 full_url = urljoin(self.base_url, href)
-                # 💡 현재 사이트 URL 시작과 동일하고, 방문하지 않은 URL만 추가
-                if full_url.startswith(self.base_url) and full_url not in visited_urls:
-                    # 💡 불필요한 앵커 링크나 특정 파일 링크는 건너뛰기 (추가)
-                    parsed_link = urlparse(full_url)
-                    if not parsed_link.fragment and not (parsed_link.path.endswith(
-                            ('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.xml', '.txt', '.pdf'))):
-                        found_links.add(full_url)
+                parsed_link = urlparse(full_url)
+                if (full_url.startswith(self.base_url) and
+                        full_url not in visited_urls and
+                        parsed_link.path not in self.excluded_paths and  # 👈 제외 목록 확인
+                        not parsed_link.fragment and
+                        not (parsed_link.path.endswith(
+                            ('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.xml', '.txt', '.pdf')))):
+                    found_links.add(full_url)
 
-            print(f"  [발견된 링크] {len(found_links)}개")
+            logger.info(f" [발견된 링크] {len(found_links)}개")
             urls_to_visit.update(found_links)
 
         if knowledge_base:
-            print(f"\n✅ 총 {len(knowledge_base)}개의 지식 덩어리를 {len(visited_urls)}개 페이지에서 최종 추출했습니다.")
+            logger.info(
+                f"\n✅ 총 {len(knowledge_base)}개의 지식 덩어리를 {len(visited_urls)}개 페이지에서 최종 추출했습니다.")
         return knowledge_base
 
     def _setup_vector_db(self) -> chromadb.Collection:
-        # 💡 ChromaDB 클라이언트를 영구적인 경로로 초기화
         chroma_client = chromadb.PersistentClient(path=self.chroma_db_path)
-        collection_name = "chatbot_content_v5"  # 컬렉션 이름 유지
+        collection_name = "chatbot_content_v5"
 
         try:
-            # 💡 컬렉션이 이미 존재하는지 확인하고, 존재하면 삭제하지 않음
-            collection = chroma_client.get_or_create_collection(name=collection_name)  # get_or_create_collection 사용
-            print(f"✅ 기존 벡터 DB 컬렉션 '{collection_name}' 로드 또는 생성 성공.")
+            collection = chroma_client.get_or_create_collection(name=collection_name)
+            logger.info(f"✅ 기존 벡터 DB 컬렉션 '{collection_name}' 로드 또는 생성 성공.")  # print -> logger.info
         except Exception as e:
-            # 예상치 못한 오류 발생 시 새로 생성 시도
-            print(f"⚠️ 벡터 DB 컬렉션 '{collection_name}' 로딩 중 오류 발생. 새로 생성합니다. 오류: {e}")
+            logger.warning(f"⚠️ 벡터 DB 컬렉션 '{collection_name}' 로딩 중 오류 발생. 새로 생성합니다. 오류: {e}")  # print -> logger.warning
             collection = chroma_client.create_collection(name=collection_name)
-
-        # ❗❗❗ 이제 여기서는 데이터를 추가하지 않습니다. 데이터 추가는 __init__에서 조건을 걸고 수행합니다.
-
         return collection
 
     def resync_data_from_site(self):
-        """
-        기존 벡터 DB의 모든 데이터를 삭제하고, 사이트를 새로 크롤링하여 지식 베이스를 재구축합니다.
-        """
         try:
-            print("🔄 관리자 요청: 챗봇 데이터 전체 리프레시를 시작합니다.")
+            logger.info("🔄 관리자 요청: 챗봇 데이터 전체 리프레시를 시작합니다.")  # print -> logger.info
 
-            # 1. 기존 컬렉션의 모든 데이터 삭제
             current_count = self.db_collection.count()
             if current_count > 0:
-                print(f"  - 기존 데이터 {current_count}개를 삭제합니다...")
-                # ChromaDB에서 모든 데이터를 삭제하려면, 모든 ID를 가져와 delete 메서드에 전달해야 합니다.
+                logger.info(f" - 기존 데이터 {current_count}개를 삭제합니다...")  # print -> logger.info
                 all_ids = self.db_collection.get(include=[])['ids']
                 if all_ids:
                     self.db_collection.delete(ids=all_ids)
-                print(f"  - 기존 데이터 삭제 완료. 현재 카운트: {self.db_collection.count()}")
+                logger.info(f" - 기존 데이터 삭제 완료. 현재 카운트: {self.db_collection.count()}")  # print -> logger.info
 
-            # 2. 사이트를 새로 크롤링하여 새로운 지식 베이스 생성
-            print("  - 사이트 크롤링을 새로 시작합니다...")
+            logger.info(" - 사이트 크롤링을 새로 시작합니다...")  # print -> logger.info
             new_knowledge_base = self._create_kb_from_site()
             if not new_knowledge_base:
-                print("🚨 리프레시 중 크롤링된 데이터가 없습니다. 작업을 중단합니다.")
+                logger.error("🚨 리프레시 중 크롤링된 데이터가 없습니다. 작업을 중단합니다.")  # print -> logger.error
                 return
 
-            # 3. 새로운 지식을 벡터 DB에 추가
-            print(f"  - 새로운 지식 {len(new_knowledge_base)}개를 벡터 DB에 저장합니다...")
+            logger.info(f" - 새로운 지식 {len(new_knowledge_base)}개를 벡터 DB에 저장합니다...")  # print -> logger.info
             self.db_collection.add(
                 documents=[doc['content'] for doc in new_knowledge_base],
                 metadatas=[doc['metadata'] for doc in new_knowledge_base],
@@ -276,87 +288,72 @@ class RAGChatbot:
             )
 
             final_count = self.db_collection.count()
-            print(f"✅ 챗봇 데이터 리프레시 성공! 총 {final_count}개의 지식이 저장되었습니다.")
+            logger.info(f"✅ 챗봇 데이터 리프레시 성공! 총 {final_count}개의 지식이 저장되었습니다.")  # print -> logger.info
 
         except Exception as e:
-            print(f"🚨 데이터 리프레시 중 심각한 오류 발생: {e}")
-
-
+            logger.error(f"🚨 데이터 리프레시 중 심각한 오류 발생: {e}", exc_info=True)  # print -> logger.error
 
     def _check_for_keyword_redirect(self, query: str) -> Dict[str, Any] | None:
-        """사용자 질문에 특정 키워드가 있는지 확인하고, 있다면 미리 정의된 기능 추천 응답을 생성합니다."""
         detected_actions = set()
         for keyword, actions in self.keyword_redirect_map.items():
             if keyword in query:
                 for action in actions:
                     detected_actions.add(action)
-
         if not detected_actions:
-            return None  # 감지된 키워드가 없으면 None을 반환
-
-        # 추천할 기능의 상세 정보를 self.site_functions에서 찾습니다.
-        action_details = []
-        for action_name in detected_actions:
-            for func in self.site_functions:
-                if func['name'] == action_name:
-                    action_details.append({
-                        "name": func['name'],
-                        "description": func['description'],
-                        "url": f"{self.base_url}{func['url']}"
-                    })
-
-        if not action_details:
             return None
-
-        # 미리 정의된 응답 JSON을 생성하여 반환합니다.
         return {
             "answer": "혹시 이런 기능들을 찾고 계신가요? 아래 버튼으로 빠르게 이동해 보세요.",
-            "suggested_actions": action_details,
-            "predicted_questions": []  # 빠른 응답에서는 예상 질문을 비워둡니다.
+            "suggested_actions": list(detected_actions),
+            "predicted_questions": []
         }
 
     def _hybrid_retrieve(self, query: str, n_results: int = 5) -> str:
         """
-        [수정] KeyBERT로 키워드를 추출하고 시맨틱 검색을 함께 수행하여 관련 정보를 가져옵니다.
+        KeyBERT로 키워드를 추출하고, 메타데이터 필터링과 시맨틱 검색을 함께 수행합니다.
         """
         if self.db_collection.count() == 0:
             return ""
 
-        # 1. [추가] KeyBERT를 사용하여 질문에서 핵심 키워드 추출
-        # kw_model.extract_keywords는 (키워드, 유사도) 튜플 리스트를 반환합니다.
         try:
-            keywords = [keyword for keyword, score in self.kw_model.extract_keywords(query, top_n=5)]
-            print(f"  [추출된 키워드] {keywords}")
+            # 질문에서 키워드 추출 (필터링에 사용)
+            keywords = [keyword for keyword, score in self.kw_model.extract_keywords(query, top_n=3)]
+            logger.info(f" KeyBERT 추출 키워드: {keywords}")
         except Exception as e:
-            print(f"🚨 KeyBERT 키워드 추출 중 오류 발생: {e}")
+            logger.error(f"🚨 KeyBERT 키워드 추출 중 오류 발생: {e}", exc_info=True)
             keywords = []
 
-        # 2. [수정] 원본 질문과 키워드를 합쳐 검색 정확도 향상
-        enhanced_query = query + " " + " ".join(keywords)
-        print(f"  [강화된 검색어] {enhanced_query}")
+        # 👇 [추가] 추출된 키워드를 기반으로 ChromaDB where 필터를 생성합니다.
+        where_document_filter = None
+        if keywords:
+            # 문서 내용(content)에 키워드가 포함되어 있는지 검색($contains)
+            where_document_filter = {
+                "$or": [{"$contains": keyword} for keyword in keywords]
+            }
 
-        # 3. 강화된 검색어로 벡터 DB 쿼리
+        enhanced_query = query + " " + " ".join(keywords)
+        logger.info(f" 강화된 검색어: {enhanced_query}")
+
+        # 👇 [수정] db_collection.query 호출 시 where 필터를 추가합니다.
         semantic_results = self.db_collection.query(
-            query_texts=[enhanced_query],  # 수정된 부분
-            n_results=n_results
+            query_texts=[enhanced_query],
+            n_results=n_results,
+            where_document=where_document_filter
         )
 
         docs_with_metadata = []
         if semantic_results and semantic_results['documents']:
             for i, doc in enumerate(semantic_results['documents'][0]):
                 metadata = semantic_results['metadatas'][0][i]
+                clean_doc = doc.split("\n\n[TAGS:")[0]
                 docs_with_metadata.append(f"[출처: {metadata.get('title', '알 수 없음')}]\n{doc}")
+        final_context = "\n\n".join(docs_with_metadata)
+        logger.info(f"ChromaDB 검색 결과 (RAG 컨텍스트):\n---\n{final_context if final_context else '검색된 결과 없음.'}\n---")
+        return final_context
 
-        return "\n\n".join(docs_with_metadata)
-
-    def _generate_final_response(self, query: str, context: str, user_profile: Dict[str, Any],
-                                 history: List[Dict[str, str]]) -> Dict[str, Any]:
-        """단순하고 강력한 프롬프트를 사용하여 LLM에 최종 답변 생성을 요청합니다."""
-        # 닉네임을 우선적으로 사용하고, 없으면 이름을 사용, 둘 다 없으면 '회원'으로 대체
-        user_display_name = user_profile.get('nickname', user_profile.get('name', '회원'))
-
-        functions_string = json.dumps(self.site_functions, indent=2, ensure_ascii=False)
-        history_string = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
+    async def _generate_answer_and_actions(self, query: str, context: str, user_profile: Dict[str, Any],
+                                           history: List[Dict[str, str]]) -> Dict[str, Any]:
+        """답변 및 추천 액션, 예상 질문을 함께 생성하는 함수"""
+        user_display_name = user_profile.get('nickname', user_profile.get('name', '비회원'))
 
         # 💡 사용자 프로필 정보를 프롬프트에 더 상세히 포함시키기
         user_profile_string_parts = []
@@ -384,23 +381,26 @@ class RAGChatbot:
                 pet_details = (
                     f"반려동물 {i + 1}: "
                     f"이름 {pet.get('name', '알 수 없음')}, "
-                    f"종 {pet.get('species', '알 수 없음')}"
+                    f"종류 {pet.get('species', '알 수 없음')}, "
+                    f"품종 {pet.get('breed', '알 수 없음')}, "
+                    f"나이 {pet.get('age', '알 수 없음')}세, "
+                    f"성별 {pet.get('gender', '알 수 없음')}, "
+                    f"중성화 여부: {pet.get('neutered', '알 수 없음')}, "
+                    f"체중: {pet.get('weight', '알 수 없음')}kg"  # 'kg' 단위 추가
                 )
-                if pet.get('breed'): pet_details += f", 품종 {pet['breed']}"
-                if pet.get('age'): pet_details += f", 나이 {pet['age']}"
-                if pet.get('gender'): pet_details += f", 성별 {pet['gender']}"
-                if pet.get('neutered') is not None: pet_details += f", 중성화 {pet['neutered']}"
-                if pet.get('weight'): pet_details += f", 체중 {pet['weight']}"
                 if pet.get('medical_history'): pet_details += f", 특이사항: {pet['medical_history']}"
                 if pet.get('registration_date'): pet_details += f", 등록일: {pet['registration_date']}"
                 user_profile_string_parts.append(pet_details)
+        else:
+            user_profile_string_parts.append("반려동물 정보: 없음")
 
-        # 🚨 'ROLE' 필드는 사용자 이름과 혼동되지 않도록 명확히 '사용자 시스템 역할'로 지칭합니다.
-        #    만약 이 정보가 챗봇의 답변에 필요 없다면, 이 부분을 주석 처리하거나 제거할 수 있습니다.
         if user_profile.get('role'):
             user_profile_string_parts.append(f"사용자 시스템 역할: {user_profile['role']}")
 
         user_profile_string = "\n".join(user_profile_string_parts) if user_profile_string_parts else "없음"
+
+        functions_string = json.dumps(self.site_functions, indent=2, ensure_ascii=False)
+        history_string = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
 
         prompt = f"""
         당신은 'DuoPet' 서비스의 유능하고 친절한 AI 비서입니다. 사용자 '{user_display_name}'님을 도와주세요.
@@ -410,6 +410,7 @@ class RAGChatbot:
 
         1.  **정보 기반 답변:** 아래 [참고 정보]를 사용하여 사용자의 [현재 질문]에 대한 답변을 찾으십시오.
             -   만약 관련 정보가 있다면, 그 정보를 바탕으로 친절하고 명확하게 답변하십시오.
+            -   참고 정보에 반려동물 이름이 있다면, **질문과 관련될 경우 반드시 답변에 정확히 포함하여 구체적으로 언급**해야 합니다.
 
         2.  **개인화된 답변:**
             -   **아래 [사용자 프로필 정보]를 적극 활용하여 답변을 개인화하십시오.**
@@ -455,7 +456,7 @@ class RAGChatbot:
         JSON 출력:
         """
         try:
-            response = client.chat.completions.create(
+            response = await client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 response_format={"type": "json_object"},
                 messages=[
@@ -467,54 +468,85 @@ class RAGChatbot:
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            print(f"🚨 OpenAI API 호출 중 오류가 발생했습니다: {e}")
+            logger.error(f"🚨 OpenAI API 호출 중 오류가 발생했습니다: {e}", exc_info=True)  # print -> logger.error
             return {"answer": "죄송합니다, AI 모델과 통신하는 중에 문제가 발생했습니다.", "suggested_actions": [], "predicted_questions": []}
 
-    def ask(self, query: str, user_profile: Dict[str, Any], history: List[Dict[str, str]] = []) -> Dict[str, Any]:
-        """메인 실행 함수"""
+    async def _is_context_relevant(self, query: str, context: str) -> bool:
+        """RAG로 검색된 정보가 질문과 관련이 있는지 AI를 통해 확인합니다."""
+        # 컨텍스트가 비어있으면 확인할 필요 없이 False를 반환합니다.
+        if not context:
+            return False
 
+        # AI에게 보낼 간단하고 명확한 프롬프트
+        prompt = f"""
+        사용자 질문: "{query}"
+
+        검색된 정보: "{context}"
+
+        위 사용자 질문과 검색된 정보가 서로 의미적으로 관련이 있습니까? 오직 '네' 또는 '아니오' 한 단어로만 대답하십시오.
+        """
         try:
-
-            spell_checker = SpellChecker()
-
-            result = spell_checker.check_spelling(query)
-
-            corrected_query = result  # 직접 문자열이 반환된다고 가정
-
-            if query != corrected_query:
-                print(f"\n[맞춤법 교정] 원본: '{query}' -> 교정: '{corrected_query}'")
-            else:
-                print(f"\n[맞춤법 교정] 원본과 동일: '{query}'")
+            response = await client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system",
+                     "content": "You are an assistant that determines if a context is relevant to a query. Answer only with '네' or '아니오'."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,  # 일관된 답변을 위해 0으로 설정
+                max_tokens=5  # '네' 또는 '아니오'만 받기 위해 토큰 수 제한
+            )
+            answer = response.choices[0].message.content.strip()
+            logger.info(f"RAG 관련성 검사 결과: '{answer}'")
+            # 응답에 '네'가 포함되어 있으면 True를 반환합니다.
+            return "네" in answer
         except Exception as e:
-            print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
+            logger.error(f"RAG 관련성 검사 중 오류 발생: {e}")
+            # 오류 발생 시, 안전하게 관련 없는 것으로 간주합니다.
+            return False
+
+    # ask 함수 전체를 아래 내용으로 교체합니다.
+
+    async def ask(self, query: str, user_profile: Dict[str, Any], history: List[Dict[str, str]] = []) -> Dict[str, Any]:
+        """메인 실행 함수 (백엔드 필터링 제거, 프론트엔드 제어로 변경)"""
+
+        # 맞춤법 검사 및 캐시 확인 (기존과 동일)
+        try:
+            spell_checker = SpellChecker()
+            corrected_query = spell_checker.check_spelling(query)['corrected_text']
+            if query != corrected_query: logger.info(f"[맞춤법 교정] '{query}' -> '{corrected_query}'")
+        except Exception as e:
+            logger.error(f"🚨 맞춤법 검사 중 오류: {e}")
             corrected_query = query
 
-        keyword_response = self._check_for_keyword_redirect(query)
-        if keyword_response:
-            print(f"\n[키워드 감지] '{query}'에 대한 빠른 응답 기능을 제공합니다.")
-            return keyword_response
-        context = self._hybrid_retrieve(query)
-        print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
+        if corrected_query in global_chat_cache:
+            logger.info(f"캐시 히트(Cache Hit)!: '{corrected_query}'")
+            return global_chat_cache[corrected_query]
 
-        response_json = self._generate_final_response(query, context, user_profile, history)
+        # 키워드 또는 AI를 통해 응답 생성 (기존과 동일)
+        response_json = self._check_for_keyword_redirect(corrected_query)
+        if not response_json:
+            context = self._hybrid_retrieve(corrected_query)
+            response_json = await self._generate_answer_and_actions(corrected_query, context, user_profile, history)
 
+        # 👇 [수정] 로그인 상태 필터링 로직을 모두 제거하고,
+        # 단순히 모든 추천 액션의 상세 정보만 생성합니다.
+        action_details = []
         if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
-            action_details = []
             valid_action_names = {func['name'] for func in self.site_functions}
-            for action_name in response_json["suggested_actions"]:
-                if action_name in valid_action_names:
+            for name in response_json["suggested_actions"]:
+                if name.strip() in valid_action_names:
                     for func in self.site_functions:
-                        if func['name'] == action_name:
-                            action_details.append({
-                                "name": func['name'],
-                                "description": func['description'],
-                                "url": f"{self.base_url}{func['url']}"
-                            })
-            response_json["suggested_actions"] = action_details
-        else:
-            response_json["suggested_actions"] = []
+                        if func['name'] == name.strip():
+                            action_details.append({"name": func['name'], "description": func['description'],
+                                                   "url": f"{self.base_url}{func['url']}"})
+                            break
 
-        if "predicted_questions" not in response_json or not isinstance(response_json["predicted_questions"], list):
+        response_json["suggested_actions"] = action_details
+
+        if "predicted_questions" not in response_json:
             response_json["predicted_questions"] = []
 
+        # 캐시 저장 및 반환
+        global_chat_cache[corrected_query] = response_json
         return response_json

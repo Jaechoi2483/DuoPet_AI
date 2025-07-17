@@ -13,7 +13,6 @@ from typing import Dict, Any
 
 from services.chatbot.predict import RAGChatbot
 
-from api.routers.chatbot_router import TARGET_URL
 
 from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -97,7 +96,7 @@ async def lifespan(app: FastAPI):
     try:
         logger.info("Initializing RAG Chatbot... (This may take a moment)")
         # 무거운 초기화 로직을 여기서 실행합니다.
-        chatbot_instance = RAGChatbot(site_url=TARGET_URL)
+        chatbot_instance = RAGChatbot(site_url=settings.CHATBOT_TARGET_URL)
         app.state.chatbot = chatbot_instance
         logger.info("RAG Chatbot initialized successfully.")
     except Exception as e:
