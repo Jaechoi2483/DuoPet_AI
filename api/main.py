@@ -87,7 +87,7 @@ async def lifespan(app: FastAPI):
     try:
         await connect_to_databases()
         # SQLAlchemy 테이블 초기화
-        await init_db()
+        init_db()
         logger.info("All database connections established")
     except Exception as e:
         # 연결 실패 시에도 서버가 죽지 않도록 로그만 남깁니다.
