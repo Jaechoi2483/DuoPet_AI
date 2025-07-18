@@ -74,6 +74,43 @@ class RAGChatbot:
             "심심": ["video_recommend", "free_board"]
         }
 
+        self.predefined_questions = {
+            "notice_board": [
+                "최근 공지사항 3개만 알려줘",
+                "서비스 점검 일정은 언제야?"
+            ],
+            "free_board": [
+                "사람들이 가장 많이 본 글은 뭐야?",
+                "강아지 자랑 게시판은 어디야?",
+                "글을 쓰려면 어떻게 해야 해?"
+            ],
+            "health_check": [
+                "우리 {pet_species} {pet_name}가(이) 자꾸 귀를 긁어", # 템플릿으로 수정
+                "우리 아이가 오늘따라 기운이 없어",
+                "건강 진단 결과는 저장돼?"
+            ],
+            "behavior_analysis": [
+                "강아지가 꼬리를 무는 이유는 뭐야?",
+                "고양이가 밤에 너무 시끄럽게 울어",
+                "분리불안 증상에 대해 알려줘"
+            ],
+            "video_recommend": [
+                "오늘의 추천 영상 보여줘",
+                "강아지 훈련 관련 영상 있어?",
+                "재미있는 동물 영상 추천해줘"
+            ],
+            "qna": [
+                "자주 묻는 질문은 뭐가 있어?",
+                "결제 관련해서 질문하고 싶어",
+                "내 질문에 대한 답변은 어디서 봐?"
+            ],
+            # 추천 기능이 없을 때 사용할 기본 질문
+            "default": [
+                "{pet_age}살인 우리 {pet_name}에게 맞는 사료 추천해줘",  # 템플릿으로 수정
+                "우리 {pet_species}가 좋아할 만한 장난감 있어?",  # 템플릿으로 수정
+                "가장 인기 있는 서비스는 뭐야?"
+            ]
+        }
         self.base_url = f"{urlparse(self.site_url).scheme}://{urlparse(self.site_url).netloc}"
         self.max_crawl_pages = max_crawl_pages
 
@@ -409,24 +446,17 @@ class RAGChatbot:
         **지시사항:**
 
         1.  **정보 기반 답변:** 아래 [참고 정보]를 사용하여 사용자의 [현재 질문]에 대한 답변을 찾으십시오.
-            -   만약 관련 정보가 있다면, 그 정보를 바탕으로 친절하고 명확하게 답변하십시오.
+        2.  **개인화된 답변:** 아래 [사용자 프로필 정보]를 적극 활용하여 답변을 개인화하십시오. 특히 반려동물 관련 질문에는 해당 반려동물의 이름, 종 등을 언급하며 더 구체적으로 답변하십시오.
+        3.  **일반 지식 활용:** [참고 정보]에 답이 없다면, 당신의 일반 지식을 활용하여 최선을 다해 답변하십시오.
 
-        2.  **개인화된 답변:**
-            -   **아래 [사용자 프로필 정보]를 적극 활용하여 답변을 개인화하십시오.**
-            -   특히 반려동물 관련 질문에는 해당 반려동물의 이름, 종, 나이 등을 언급하며 더 구체적으로 답변하십시오.
-            -   사용자의 과거 활동이나 선호도에 기반하여 관련성 높은 정보를 제공하거나 기능을 제안하십시오.
-            -   **사용자 프로필의 '사용자 시스템 역할' 정보(예: 관리자)를 답변에 직접적인 호칭으로 사용하지 마십시오.** 오직 사용자 '{user_display_name}'님만을 호칭으로 사용하십시오.
+        4.  **[필수] 후속 질문 제안:**
+            -   답변이 끝난 후, 사용자가 다음에 궁금해할 만한 **관련 후속 질문 3가지를 반드시 예측하여 생성**해야 합니다.
+            -   이 질문들은 사용자 프로필(특히 반려동물 정보)을 활용하여 개인화되어야 합니다.
+            -   이 작업은 선택 사항이 아니며, **결과 JSON에 'predicted_questions' 키가 반드시 포함되어야 합니다.**
 
-        3.  **일반 지식 활용:**
-            -   만약 [참고 정보]에 질문에 대한 답이 없다면, 그때는 당신의 일반 지식을 활용하여 최선을 다해 답변하십시오.
-            -   "정보를 찾을 수 없습니다"라는 말 대신, 도움이 되는 일반적인 조언이나 정보를 제공하세요.
-
-        4.  **기능 및 질문 제안:**
-            -   답변 후, 사용자의 질문과 관련 있는 기능을 [사이트 기능 목록]에서 찾아 제안하십시오.
-            -   사용자가 다음에 궁금해할 만한 **관련 후속 질문 3가지**를 예측하여 생성하십시오.
-                - 예상 질문 생성 시에도 사용자 프로필(특히 반려동물 정보)을 활용하여 개인화된 질문을 제안하십시오.
-
-        5.  **출력 형식:** 최종 결과물은 반드시 아래 JSON 형식으로만 반환해야 합니다.
+        5.  **[필수] 기능 제안 및 출력 형식:**
+            -   답변과 관련 있는 기능을 [사이트 기능 목록]에서 찾아 제안하십시오.
+            -   최종 결과물은 반드시 아래 JSON 형식으로만 반환해야 하며, **명시된 모든 키를 포함**해야 합니다.
 
         **JSON 출력 형식:**
         {{
@@ -471,50 +501,114 @@ class RAGChatbot:
             return {"answer": "죄송합니다, AI 모델과 통신하는 중에 문제가 발생했습니다.", "suggested_actions": [], "predicted_questions": []}
 
     def ask(self, query: str, user_profile: Dict[str, Any], history: List[Dict[str, str]] = []) -> Dict[str, Any]:
-        """메인 실행 함수"""
+        """
+        메인 실행 함수.
+        [수정] 사용자 로그인 상태를 확인하여 응답 로직을 분기합니다.
+        """
+        # 1. 사용자 로그인 상태 확인
+        is_logged_in = user_profile and user_profile.get('user_id') not in [None, '0']
+        user_display_name = user_profile.get('nickname', '고객')
+
+        # 2. 로그인 사용자의 '로그인' 질문에 대한 즉각적인 답변
+        if is_logged_in and any(keyword in query for keyword in ["로그인", "가입"]):
+            print(f"[로그인 상태 확인] '{user_display_name}'님은 이미 로그인 상태입니다. 확정된 답변을 즉시 반환합니다.")
+            return {
+                "answer": f"{user_display_name}님은 이미 로그인 상태입니다. 다른 도움이 필요하시면 편하게 말씀해주세요.",
+                "suggested_actions": [
+                    {"name": "free_board", "description": "자유게시판 가기", "url": f"{self.base_url}/board"},
+                    {"name": "health_check", "description": "반려동물 건강 진단하기", "url": f"{self.base_url}/health-check"}
+                ],
+                "predicted_questions": [
+                    "내 정보는 어디서 확인해?",
+                    "우리 아이 건강 기록 보고 싶어",
+                    "자유게시판에 다른 사람들은 무슨 글을 썼어?"
+                ]
+            }
+
+        # 3. try...finally 구문을 사용하여 기능 목록을 안전하게 임시 변경 및 복원
+        original_functions = self.site_functions
+        if is_logged_in:
+            print("[로그인 상태 확인] 추천 기능 목록에서 '로그인'을 임시로 제외합니다.")
+            self.site_functions = [func for func in original_functions if func['name'] != 'login']
 
         try:
+            # --- 맞춤법 검사 ---
+            try:
+                spell_checker = SpellChecker()
+                result_dict = spell_checker.check_spelling(query)
+                corrected_query = result_dict['corrected_text']
+                if query != corrected_query:
+                    print(
+                        f"\n[맞춤법 교정] 원본: '{query}' -> 교정: '{corrected_query}' (오류 {result_dict.get('error_count', 0)}개)")
+                else:
+                    print(f"\n[맞춤법 교정] 원본과 동일: '{query}'")
+            except Exception as e:
+                print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
+                corrected_query = query
 
-            spell_checker = SpellChecker()
+            # --- 키워드 기반 기능 추천 ---
+            keyword_response = self._check_for_keyword_redirect(corrected_query)
+            if keyword_response:
+                print(f"\n[키워드 감지] '{corrected_query}'에 대한 빠른 응답 기능을 제공합니다.")
+                return keyword_response
 
-            result = spell_checker.check_spelling(query)
+            # --- RAG 및 LLM 호출 ---
+            context = self._hybrid_retrieve(corrected_query)
+            print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
+            response_json = self._generate_final_response(corrected_query, context, user_profile, history)
 
-            corrected_query = result  # 직접 문자열이 반환된다고 가정
-
-            if query != corrected_query:
-                print(f"\n[맞춤법 교정] 원본: '{query}' -> 교정: '{corrected_query}'")
+            # --- 추천 기능(suggested_actions) 정리 ---
+            if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
+                action_details = []
+                valid_action_names = {func['name'] for func in self.site_functions}
+                for action_name in response_json["suggested_actions"]:
+                    if action_name in valid_action_names:
+                        for func in self.site_functions:
+                            if func['name'] == action_name:
+                                action_details.append({
+                                    "name": func['name'],
+                                    "description": func['description'],
+                                    "url": f"{self.base_url}{func['url']}"
+                                })
+                response_json["suggested_actions"] = action_details
             else:
-                print(f"\n[맞춤법 교정] 원본과 동일: '{query}'")
-        except Exception as e:
-            print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
-            corrected_query = query
+                response_json["suggested_actions"] = []
 
-        keyword_response = self._check_for_keyword_redirect(query)
-        if keyword_response:
-            print(f"\n[키워드 감지] '{query}'에 대한 빠른 응답 기능을 제공합니다.")
-            return keyword_response
-        context = self._hybrid_retrieve(query)
-        print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
+            # --- 예상 질문(predicted_questions) 선택 ---
+            selected_questions = []
+            if response_json.get("suggested_actions"):
+                first_action_name = response_json["suggested_actions"][0]['name']
+                selected_questions = self.predefined_questions.get(first_action_name,
+                                                                   self.predefined_questions['default'])
+            else:
+                selected_questions = self.predefined_questions['default']
 
-        response_json = self._generate_final_response(query, context, user_profile, history)
+            final_questions = []
+            # 사용자의 첫 번째 반려동물 정보를 가져옴 (없으면 None)
+            pet = user_profile['pet_info'][0] if user_profile.get('pet_info') else None
 
-        if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
-            action_details = []
-            valid_action_names = {func['name'] for func in self.site_functions}
-            for action_name in response_json["suggested_actions"]:
-                if action_name in valid_action_names:
-                    for func in self.site_functions:
-                        if func['name'] == action_name:
-                            action_details.append({
-                                "name": func['name'],
-                                "description": func['description'],
-                                "url": f"{self.base_url}{func['url']}"
-                            })
-            response_json["suggested_actions"] = action_details
-        else:
-            response_json["suggested_actions"] = []
+            for q_template in selected_questions:
+                if pet:
+                    # 반려동물 정보가 있으면, 템플릿에 정보를 채워 넣습니다.
+                    # .format()은 KeyError를 발생시킬 수 있으므로, .replace()를 안전하게 사용합니다.
+                    question = q_template.replace('{pet_name}', pet.get('name', '반려동물'))
+                    question = question.replace('{pet_species}', pet.get('species', '반려동물'))
+                    question = question.replace('{pet_age}', str(pet.get('age', 'N살')))  # 나이는 문자열로 변환
+                    final_questions.append(question)
+                else:
+                    # 반려동물 정보가 없으면, 템플릿 변수를 일반적인 단어로 바꿉니다.
+                    question = q_template.replace('{pet_name}', '반려동물')
+                    question = question.replace('{pet_species}', '반려동물')
+                    question = question.replace('{pet_age}', '우리 아이')
+                    final_questions.append(question)
 
-        if "predicted_questions" not in response_json or not isinstance(response_json["predicted_questions"], list):
-            response_json["predicted_questions"] = []
+            # response_json의 predicted_questions를 최종 완성된 질문 목록으로 덮어씁니다.
+            response_json["predicted_questions"] = final_questions[:3]
 
-        return response_json
+            return response_json
+
+        finally:
+            # [수정] try 블록의 작업이 끝나면(성공/실패 무관) 항상 원래 기능 목록으로 복원
+            self.site_functions = original_functions
+            if is_logged_in:
+                print("[요청 처리 완료] 기능 목록을 원래 상태로 복원합니다.")
