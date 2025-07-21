@@ -10,6 +10,7 @@ from datetime import date
 # DuoPet AI 프로젝트의 공통 모듈 및 서비스 임포트
 from common.response import StandardResponse, create_success_response, create_error_response, ErrorCode
 from common.logger import get_logger
+from services import chatbot
 
 from services.chatbot.chatbot_db import  get_user_profile_for_chatbot
 
@@ -77,3 +78,4 @@ async def chat(
             error_code=ErrorCode.UNKNOWN_ERROR,
             message="요청을 처리하는 중 내부 오류가 발생했습니다."
         )
+
