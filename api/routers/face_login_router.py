@@ -4,93 +4,38 @@ Face Login Router
 This module provides endpoints for face recognition-based authentication.
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Query, HTTPException
+from services.face_login.predict import (
+    register_face_image,
+    verify_face_image,
+    delete_face_embedding
+)
 
-from common.response import StandardResponse, create_success_response, create_error_response
-from common.exceptions import FaceNotDetectedError, MultipleFacesDetectedError
-from common.logger import get_logger
+router = APIRouter(tags=["Face Login"])
 
-logger = get_logger(__name__)
-
-router = APIRouter()
-
-
-@router.post("/register", response_model=StandardResponse)
-async def register_face(
-    user_id: str,
-    image: UploadFile = File(..., description="Face image for registration")
+@router.post("/register")
+async def register_face_endpoint(
+    user_id: str = Query(..., description="User ID"),
+    image: UploadFile = File(..., description="Face image")
 ):
-    """
-    Register a new face for user authentication
-    
-    - **user_id**: Unique identifier for the user
-    - **image**: Face image file (JPEG, PNG)
-    """
-    logger.info(f"Face registration request for user: {user_id}")
-    
-    # TODO: Implement face registration logic
-    # 1. Validate image format
-    # 2. Detect face in image
-    # 3. Extract face embeddings
-    # 4. Store embeddings with user_id
-    
-    return create_success_response(
-        data={
-            "user_id": user_id,
-            "message": "Face registered successfully",
-            "face_count": 1
-        }
-    )
+    try:
+        return await register_face_image(user_id, image, image.filename)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"얼굴 등록 실패: {str(e)}")
 
-
-@router.post("/verify", response_model=StandardResponse)
-async def verify_face(
-    image: UploadFile = File(..., description="Face image for verification")
+@router.post("/verify")
+async def verify_face_endpoint(
+    user_id: str = Query(..., description="User ID"),
+    image: UploadFile = File(..., description="Face image to verify")
 ):
-    """
-    Verify a face against registered faces
-    
-    - **image**: Face image file to verify
-    
-    Returns user_id if match found with confidence score
-    """
-    logger.info("Face verification request")
-    
-    # TODO: Implement face verification logic
-    # 1. Validate image format
-    # 2. Detect face in image
-    # 3. Extract face embeddings
-    # 4. Compare with stored embeddings
-    # 5. Return best match if confidence > threshold
-    
-    return create_success_response(
-        data={
-            "verified": True,
-            "user_id": "test-user-123",
-            "confidence": 0.95,
-            "message": "Face verified successfully"
-        }
-    )
+    try:
+        return await verify_face_image(user_id, image)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"얼굴 인증 실패: {str(e)}")
 
-
-@router.delete("/remove/{user_id}", response_model=StandardResponse)
-async def remove_face(user_id: str):
-    """
-    Remove registered face data for a user
-    
-    - **user_id**: User ID whose face data to remove
-    """
-    logger.info(f"Face removal request for user: {user_id}")
-    
-    # TODO: Implement face removal logic
-    # 1. Check if user exists
-    # 2. Remove face embeddings
-    # 3. Clean up any cached data
-    
-    return create_success_response(
-        data={
-            "user_id": user_id,
-            "message": "Face data removed successfully"
-        }
-    )
+@router.delete("/delete")
+def delete_face_endpoint(user_id: str = Query(..., description="User ID")):
+    try:
+        return delete_face_embedding(user_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"얼굴 삭제 실패: {str(e)}")
