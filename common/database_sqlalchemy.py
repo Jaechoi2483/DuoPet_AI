@@ -64,7 +64,7 @@ def init_db():
         
     try:
         logger.info("Creating database tables if they do not exist...")
-        Base.metadata.create_all(bind=engine)
+        # Base.metadata.create_all(bind=engine) # sqlalchemy의 자동생성을 막기 위해 주석처리함
         logger.info("Database tables checked/created successfully.")
     except Exception as e:
         logger.error(f"Failed to create database tables: {e}")
