@@ -50,7 +50,7 @@ except Exception as e:
 
 # --- RAG 챗봇 클래스 정의 ---
 class RAGChatbot:
-    def __init__(self, site_url: str, max_crawl_pages: int = 10):
+    def __init__(self, site_url: str, max_crawl_pages: int = 50):
         print("🤖 RAG 챗봇 초기화를 시작합니다...")
         self.site_url = site_url
         self.site_functions = [
@@ -58,7 +58,6 @@ class RAGChatbot:
             {"name": "free_board", "description": "자유게시판 가기", "url": "/board"},
             {"name": "health_check", "description": "반려동물 건강 진단하기", "url": "/health-check"},
             {"name": "behavior_analysis", "description": "이상행동 분석 서비스 보기", "url": "/behavior-analysis"},
-            {"name": "video_recommend", "description": "추천 영상 보러가기", "url": "/recommendations"},
             {"name": "qna", "description": "qna", "url": "/qna"},
             {"name": "login", "description": "로그인", "url": "/login"}
         ]
@@ -74,6 +73,37 @@ class RAGChatbot:
             "심심": ["video_recommend", "free_board"]
         }
 
+        self.predefined_questions = {
+            "notice_board": [
+                "최근 공지사항 3개만 알려줘",
+                "서비스 점검 일정은 언제야?"
+            ],
+            "free_board": [
+                "사람들이 가장 많이 본 글은 뭐야?",
+                "강아지 자랑 게시판은 어디야?",
+                "글을 쓰려면 어떻게 해야 해?"
+            ],
+            "health_check": [
+                "우리 {pet_species} {pet_name}가(이) 자꾸 귀를 긁어",
+                "우리 아이가 오늘따라 기운이 없어",
+                "건강 진단 결과는 저장돼?"
+            ],
+            "behavior_analysis": [
+                "강아지가 꼬리를 무는 이유는 뭐야?",
+                "고양이가 밤에 너무 시끄럽게 울어",
+                "분리불안 증상에 대해 알려줘"
+            ],
+            "qna": [
+                "자주 묻는 질문은 뭐가 있어?",
+                "결제 관련해서 질문하고 싶어",
+                "내 질문에 대한 답변은 어디서 봐?"
+            ],
+            "default": [
+                "{pet_age}살인 우리 {pet_name}에게 맞는 사료 추천해줘",
+                "우리 {pet_species}가 좋아할 만한 장난감 있어?",
+                "가장 인기 있는 서비스는 뭐야?"
+            ]
+        }
         self.base_url = f"{urlparse(self.site_url).scheme}://{urlparse(self.site_url).netloc}"
         self.max_crawl_pages = max_crawl_pages
 
@@ -81,20 +111,15 @@ class RAGChatbot:
         self.kw_model = KeyBERT('paraphrase-multilingual-MiniLM-L12-v2')
         print("모델 로딩 완료.")
 
-        # 💡 벡터 DB 설정 및 데이터 로딩 또는 크롤링
-        # ChromaDB 데이터가 저장될 경로 설정 (예: 프로젝트 루트의 'chroma_data' 폴더)
-        self.chroma_db_path = os.environ.get("CHROMA_DB_PATH", "./chroma_data")  # .env 파일에서 설정하거나 기본값 사용
-        self.db_collection = self._setup_vector_db()  # 컬렉션 로드 또는 생성
+        self.chroma_db_path = os.environ.get("CHROMA_DB_PATH", "./chroma_data")
+        self.db_collection = self._setup_vector_db()
 
-        # 지식 베이스가 비어있다면 크롤링 및 저장
         if self.db_collection.count() == 0:
             print("⚠️ 기존 지식 베이스가 비어있습니다. 사이트 크롤링을 시작합니다...")
             self.knowledge_base = self._create_kb_from_site()
             if not self.knowledge_base:
-                # 크롤링 후에도 지식 베이스가 비어있으면 초기화 실패로 간주
                 raise RuntimeError("지식 베이스 생성에 실패했습니다. URL과 사이트 내용을 확인해주세요.")
 
-            # 크롤링된 지식을 DB에 추가 (이미 삭제되었거나 비어있을 경우)
             print(f"--- 🧠 크롤링된 지식 {len(self.knowledge_base)}개를 벡터 DB에 저장 중 ---")
             self.db_collection.add(
                 documents=[doc['content'] for doc in self.knowledge_base],
@@ -104,46 +129,26 @@ class RAGChatbot:
             print(f"✅ 총 {self.db_collection.count()}개의 지식이 벡터 DB에 성공적으로 저장되었습니다.")
         else:
             print(f"✅ 기존 벡터 DB에서 {self.db_collection.count()}개의 지식 로딩 완료. 크롤링을 건너뜀.")
-            # knowledge_base 변수는 _hybrid_retrieve 등에서 직접 사용되지 않으므로,
-            # DB에서 로드할 필요가 없다면 빈 리스트로 두거나 필요에 따라 적절히 처리합니다.
             self.knowledge_base = []
 
     def _get_page_content(self, url: str) -> str:
-        """Selenium을 사용해 단일 페이지의 HTML 콘텐츠를 가져옵니다."""
         options = webdriver.ChromeOptions()
         options.add_argument('--headless')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--log-level=3')
-        options.add_argument('--window-size=1920,1080')  # 헤드리스 모드에서 창 크기 지정 (일부 페이지 렌더링에 영향)
+        options.add_argument('--window-size=1920,1080')
 
         driver = None
         try:
             service = ChromeService(ChromeDriverManager().install())
             driver = webdriver.Chrome(service=service, options=options)
-
             print(f"  [Selenium] '{url}' 페이지로 이동 중...")
             driver.get(url)
-
-            # 💡 페이지 로드 완료를 위한 명시적 대기 조건 추가 (이전 답변에서 추가된 부분)
-            try:
-                WebDriverWait(driver, 10).until(
-                    EC.presence_of_element_located((By.TAG_NAME, "body"))
-                )
-                print("  [Selenium] 페이지 로드 완료 대기 성공.")
-            except Exception as wait_e:
-                print(f"  [Selenium] 페이지 로드 대기 중 타임아웃 또는 오류 발생: {wait_e}")
-                # 그래도 page_source는 시도해 볼 수 있음
-
-            html_content = driver.page_source
-
-            # 💡 가져온 HTML 콘텐츠를 출력하고 파일로 저장 (디버깅용, 필요 없다면 제거)
-            print(f"\n--- 가져온 HTML 콘텐츠 (상위 500자) ---\n{html_content[:500]}...\n---")
-            with open("crawled_page_content.html", "w", encoding="utf-8") as f:
-                f.write(html_content)
-            print(f"💡 가져온 HTML 콘텐츠를 'crawled_page_content.html' 파일에 저장했습니다.")
-
-            return html_content
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            return driver.page_source
         except Exception as e:
             print(f"🚨 '{url}' 페이지 크롤링 중 오류 발생: {e}")
             return ""
@@ -152,9 +157,7 @@ class RAGChatbot:
                 driver.quit()
 
     def _create_kb_from_site(self) -> List[Dict[str, Any]]:
-        """사이트를 재귀적으로 크롤링하여 지식 베이스를 구축하고 상세 로그를 출력합니다."""
         print(f"--- 🌐 사이트 전체 콘텐츠 추출 시작 (최대 {self.max_crawl_pages} 페이지) ---")
-
         urls_to_visit = {self.site_url}
         visited_urls = set()
         knowledge_base = []
@@ -175,24 +178,26 @@ class RAGChatbot:
             page_title = soup.title.string.strip() if soup.title else '제목 없음'
             print(f"  [페이지 제목] {page_title}")
 
-            # 💡 콘텐츠 영역 탐색 태그 확장 (이전 디버깅 조언에 따름)
-            content_area = soup.find('main') or soup.find('article') or soup.find('body')
-            if not content_area:  # body가 fallback으로 지정되었으므로 이 조건은 실제로 body가 비어있을 때만 작동
-                print("  [결과] 주요 콘텐츠 영역을 찾지 못했습니다. 전체 body에서 추출 시도.")
-                content_area = soup.body  # 명시적으로 body를 사용하도록 변경
+            # [핵심 수정] React CSS Modules를 고려하여, 특정 패턴으로 시작하는 클래스 이름을 가진 콘텐츠 영역을 찾습니다.
+            # 공지사항 상세, 자유게시판 상세 페이지의 메인 컨테이너를 우선적으로 찾습니다.
+            content_area = soup.select_one('div[class*="NoticeDetail_container"]') or \
+                           soup.select_one('div[class*="FreeBoardDetail_container"]') or \
+                           soup.find('main') or \
+                           soup.find('article') or \
+                           soup.body  # 최후의 수단
+
+            if not content_area:
+                print("  [결과] 주요 콘텐츠 영역을 찾지 못했습니다.")
+                continue
+
+            print(f"  [콘텐츠 영역 탐색] 선택된 영역: <{content_area.name} class='{' '.join(content_area.get('class', []))}'>")
 
             chunks_from_page = []
-            # 💡 텍스트를 추출할 태그 목록을 확장
-            for element in content_area.find_all(
-                    ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'div', 'li', 'span', 'a', 'strong', 'em', 'dd', 'dt'],
-                    # 태그 확장
-                    recursive=True
-            ):
+            # [수정] 제목(h2)과 본문(p, div) 위주로 정보를 수집합니다.
+            for element in content_area.find_all(['h2', 'p', 'div'], recursive=True):
                 if isinstance(element, NavigableString): continue
                 text = element.get_text(separator=' ', strip=True)
-                # 💡 길이 제한 완화 및 불필요한 텍스트 필터링 강화
-                if len(text) > 15 and '\n' not in text and 'function' not in text.lower() and 'var' not in text.lower():
-                    # 너무 짧은 텍스트나 JS 코드처럼 보이는 텍스트 필터링
+                if len(text) > 15 and 'function' not in text.lower() and 'var' not in text.lower():
                     chunks_from_page.append(text)
 
             unique_chunks = list(dict.fromkeys(chunks_from_page))
@@ -210,12 +215,10 @@ class RAGChatbot:
             for link in content_area.find_all('a', href=True):
                 href = link['href']
                 full_url = urljoin(self.base_url, href)
-                # 💡 현재 사이트 URL 시작과 동일하고, 방문하지 않은 URL만 추가
                 if full_url.startswith(self.base_url) and full_url not in visited_urls:
-                    # 💡 불필요한 앵커 링크나 특정 파일 링크는 건너뛰기 (추가)
                     parsed_link = urlparse(full_url)
                     if not parsed_link.fragment and not (parsed_link.path.endswith(
-                            ('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.xml', '.txt', '.pdf'))):
+                            ('.css', '.js', '.png', '.jpg', '.jpeg', '.gif', '.svg'))):
                         found_links.add(full_url)
 
             print(f"  [발견된 링크] {len(found_links)}개")
@@ -226,58 +229,37 @@ class RAGChatbot:
         return knowledge_base
 
     def _setup_vector_db(self) -> chromadb.Collection:
-        # 💡 ChromaDB 클라이언트를 영구적인 경로로 초기화
         chroma_client = chromadb.PersistentClient(path=self.chroma_db_path)
-        collection_name = "chatbot_content_v5"  # 컬렉션 이름 유지
-
-        try:
-            # 💡 컬렉션이 이미 존재하는지 확인하고, 존재하면 삭제하지 않음
-            collection = chroma_client.get_or_create_collection(name=collection_name)  # get_or_create_collection 사용
-            print(f"✅ 기존 벡터 DB 컬렉션 '{collection_name}' 로드 또는 생성 성공.")
-        except Exception as e:
-            # 예상치 못한 오류 발생 시 새로 생성 시도
-            print(f"⚠️ 벡터 DB 컬렉션 '{collection_name}' 로딩 중 오류 발생. 새로 생성합니다. 오류: {e}")
-            collection = chroma_client.create_collection(name=collection_name)
-
-        # ❗❗❗ 이제 여기서는 데이터를 추가하지 않습니다. 데이터 추가는 __init__에서 조건을 걸고 수행합니다.
-
+        collection_name = "chatbot_content_v5"
+        collection = chroma_client.get_or_create_collection(name=collection_name)
+        print(f"✅ 기존 벡터 DB 컬렉션 '{collection_name}' 로드 또는 생성 성공.")
         return collection
 
     def resync_data_from_site(self):
-        """
-        기존 벡터 DB의 모든 데이터를 삭제하고, 사이트를 새로 크롤링하여 지식 베이스를 재구축합니다.
-        """
         try:
             print("🔄 관리자 요청: 챗봇 데이터 전체 리프레시를 시작합니다.")
-
-            # 1. 기존 컬렉션의 모든 데이터 삭제
             current_count = self.db_collection.count()
             if current_count > 0:
                 print(f"  - 기존 데이터 {current_count}개를 삭제합니다...")
-                # ChromaDB에서 모든 데이터를 삭제하려면, 모든 ID를 가져와 delete 메서드에 전달해야 합니다.
                 all_ids = self.db_collection.get(include=[])['ids']
                 if all_ids:
                     self.db_collection.delete(ids=all_ids)
                 print(f"  - 기존 데이터 삭제 완료. 현재 카운트: {self.db_collection.count()}")
 
-            # 2. 사이트를 새로 크롤링하여 새로운 지식 베이스 생성
             print("  - 사이트 크롤링을 새로 시작합니다...")
             new_knowledge_base = self._create_kb_from_site()
             if not new_knowledge_base:
                 print("🚨 리프레시 중 크롤링된 데이터가 없습니다. 작업을 중단합니다.")
                 return
 
-            # 3. 새로운 지식을 벡터 DB에 추가
             print(f"  - 새로운 지식 {len(new_knowledge_base)}개를 벡터 DB에 저장합니다...")
             self.db_collection.add(
                 documents=[doc['content'] for doc in new_knowledge_base],
                 metadatas=[doc['metadata'] for doc in new_knowledge_base],
                 ids=[doc['id'] for doc in new_knowledge_base]
             )
-
             final_count = self.db_collection.count()
             print(f"✅ 챗봇 데이터 리프레시 성공! 총 {final_count}개의 지식이 저장되었습니다.")
-
         except Exception as e:
             print(f"🚨 데이터 리프레시 중 심각한 오류 발생: {e}")
 
@@ -302,7 +284,7 @@ class RAGChatbot:
                     action_details.append({
                         "name": func['name'],
                         "description": func['description'],
-                        "url": f"{self.base_url}{func['url']}"
+                        "url": func['url']
                     })
 
         if not action_details:
@@ -315,7 +297,7 @@ class RAGChatbot:
             "predicted_questions": []  # 빠른 응답에서는 예상 질문을 비워둡니다.
         }
 
-    def _hybrid_retrieve(self, query: str, n_results: int = 5) -> str:
+    def _hybrid_retrieve(self, query: str, n_results: int = 5, source_filter: str = None) -> str:
         """
         [수정] KeyBERT로 키워드를 추출하고 시맨틱 검색을 함께 수행하여 관련 정보를 가져옵니다.
         """
@@ -335,11 +317,17 @@ class RAGChatbot:
         enhanced_query = query + " " + " ".join(keywords)
         print(f"  [강화된 검색어] {enhanced_query}")
 
+        query_params = {
+            'query_texts': [enhanced_query],
+            'n_results': n_results
+        }
+        if source_filter:
+            where_clause = {"source": {"$like": f"%{source_filter}%"}}
+            query_params['where'] = where_clause
+            print(f"  [메타데이터 필터링 적용] source: {source_filter}")
+
         # 3. 강화된 검색어로 벡터 DB 쿼리
-        semantic_results = self.db_collection.query(
-            query_texts=[enhanced_query],  # 수정된 부분
-            n_results=n_results
-        )
+        semantic_results = self.db_collection.query(**query_params)
 
         docs_with_metadata = []
         if semantic_results and semantic_results['documents']:
@@ -409,24 +397,17 @@ class RAGChatbot:
         **지시사항:**
 
         1.  **정보 기반 답변:** 아래 [참고 정보]를 사용하여 사용자의 [현재 질문]에 대한 답변을 찾으십시오.
-            -   만약 관련 정보가 있다면, 그 정보를 바탕으로 친절하고 명확하게 답변하십시오.
+        2.  **개인화된 답변:** 아래 [사용자 프로필 정보]를 적극 활용하여 답변을 개인화하십시오. 특히 반려동물 관련 질문에는 해당 반려동물의 이름, 종 등을 언급하며 더 구체적으로 답변하십시오.
+        3.  **일반 지식 활용:** [참고 정보]에 답이 없다면, 당신의 일반 지식을 활용하여 최선을 다해 답변하십시오.
 
-        2.  **개인화된 답변:**
-            -   **아래 [사용자 프로필 정보]를 적극 활용하여 답변을 개인화하십시오.**
-            -   특히 반려동물 관련 질문에는 해당 반려동물의 이름, 종, 나이 등을 언급하며 더 구체적으로 답변하십시오.
-            -   사용자의 과거 활동이나 선호도에 기반하여 관련성 높은 정보를 제공하거나 기능을 제안하십시오.
-            -   **사용자 프로필의 '사용자 시스템 역할' 정보(예: 관리자)를 답변에 직접적인 호칭으로 사용하지 마십시오.** 오직 사용자 '{user_display_name}'님만을 호칭으로 사용하십시오.
+        4.  **[필수] 후속 질문 제안:**
+            -   답변이 끝난 후, 사용자가 다음에 궁금해할 만한 **관련 후속 질문 3가지를 반드시 예측하여 생성**해야 합니다.
+            -   이 질문들은 사용자 프로필(특히 반려동물 정보)을 활용하여 개인화되어야 합니다.
+            -   이 작업은 선택 사항이 아니며, **결과 JSON에 'predicted_questions' 키가 반드시 포함되어야 합니다.**
 
-        3.  **일반 지식 활용:**
-            -   만약 [참고 정보]에 질문에 대한 답이 없다면, 그때는 당신의 일반 지식을 활용하여 최선을 다해 답변하십시오.
-            -   "정보를 찾을 수 없습니다"라는 말 대신, 도움이 되는 일반적인 조언이나 정보를 제공하세요.
-
-        4.  **기능 및 질문 제안:**
-            -   답변 후, 사용자의 질문과 관련 있는 기능을 [사이트 기능 목록]에서 찾아 제안하십시오.
-            -   사용자가 다음에 궁금해할 만한 **관련 후속 질문 3가지**를 예측하여 생성하십시오.
-                - 예상 질문 생성 시에도 사용자 프로필(특히 반려동물 정보)을 활용하여 개인화된 질문을 제안하십시오.
-
-        5.  **출력 형식:** 최종 결과물은 반드시 아래 JSON 형식으로만 반환해야 합니다.
+        5.  **[필수] 기능 제안 및 출력 형식:**
+            -   답변과 관련 있는 기능을 [사이트 기능 목록]에서 찾아 제안하십시오.
+            -   최종 결과물은 반드시 아래 JSON 형식으로만 반환해야 하며, **명시된 모든 키를 포함**해야 합니다.
 
         **JSON 출력 형식:**
         {{
@@ -471,50 +452,115 @@ class RAGChatbot:
             return {"answer": "죄송합니다, AI 모델과 통신하는 중에 문제가 발생했습니다.", "suggested_actions": [], "predicted_questions": []}
 
     def ask(self, query: str, user_profile: Dict[str, Any], history: List[Dict[str, str]] = []) -> Dict[str, Any]:
-        """메인 실행 함수"""
+        """
+        메인 실행 함수.
+        [수정] 사용자 로그인 상태를 확인하여 응답 로직을 분기합니다.
+        """
+        # 1. 사용자 로그인 상태 확인
+        is_logged_in = user_profile and user_profile.get('user_id') not in [None, '0']
+        user_display_name = user_profile.get('nickname', '고객')
+
+        # 2. 로그인 사용자의 '로그인' 질문에 대한 즉각적인 답변
+        if is_logged_in and any(keyword in query for keyword in ["로그인", "가입"]):
+            print(f"[로그인 상태 확인] '{user_display_name}'님은 이미 로그인 상태입니다. 확정된 답변을 즉시 반환합니다.")
+            return {
+                "answer": f"{user_display_name}님은 이미 로그인 상태입니다. 다른 도움이 필요하시면 편하게 말씀해주세요.",
+                "suggested_actions": [
+                    {"name": "free_board", "description": "자유게시판 가기", "url": f"{self.base_url}/board"},
+                    {"name": "health_check", "description": "반려동물 건강 진단하기", "url": f"{self.base_url}/health-check"}
+                ],
+                "predicted_questions": [
+                    "내 정보는 어디서 확인해?",
+                    "우리 아이 건강 기록 보고 싶어",
+                    "자유게시판에 다른 사람들은 무슨 글을 썼어?"
+                ]
+            }
+
+        # 3. try...finally 구문을 사용하여 기능 목록을 안전하게 임시 변경 및 복원
+        original_functions = self.site_functions
+        if is_logged_in:
+            print("[로그인 상태 확인] 추천 기능 목록에서 '로그인'을 임시로 제외합니다.")
+            self.site_functions = [func for func in original_functions if func['name'] != 'login']
 
         try:
+            # --- 맞춤법 검사 ---
+            try:
+                spell_checker = SpellChecker()
+                result_dict = spell_checker.check_spelling(query)
+                corrected_query = result_dict['corrected_text']
+                if query != corrected_query:
+                    print(
+                        f"\n[맞춤법 교정] 원본: '{query}' -> 교정: '{corrected_query}' (오류 {result_dict.get('error_count', 0)}개)")
+                else:
+                    print(f"\n[맞춤법 교정] 원본과 동일: '{query}'")
+            except Exception as e:
+                print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
+                corrected_query = query
 
-            spell_checker = SpellChecker()
+            # --- 키워드 기반 기능 추천 ---
+            keyword_response = self._check_for_keyword_redirect(corrected_query)
+            if keyword_response:
+                print(f"\n[키워드 감지] '{corrected_query}'에 대한 빠른 응답 기능을 제공합니다.")
+                return keyword_response
 
-            result = spell_checker.check_spelling(query)
+            # --- RAG 및 LLM 호출 ---
+            context = self._hybrid_retrieve(corrected_query)
+            print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
+            response_json = self._generate_final_response(corrected_query, context, user_profile, history)
 
-            corrected_query = result  # 직접 문자열이 반환된다고 가정
-
-            if query != corrected_query:
-                print(f"\n[맞춤법 교정] 원본: '{query}' -> 교정: '{corrected_query}'")
+            # --- 추천 기능(suggested_actions) 정리 ---
+            if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
+                action_details = []
+                valid_action_names = {func['name'] for func in self.site_functions}
+                for action_name in response_json["suggested_actions"]:
+                    if action_name in valid_action_names:
+                        for func in self.site_functions:
+                            if func['name'] == action_name:
+                                action_details.append({
+                                    "name": func['name'],
+                                    "description": func['description'],
+                                    "url": func['url']
+                                })
+                response_json["suggested_actions"] = action_details
             else:
-                print(f"\n[맞춤법 교정] 원본과 동일: '{query}'")
-        except Exception as e:
-            print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
-            corrected_query = query
+                response_json["suggested_actions"] = []
 
-        keyword_response = self._check_for_keyword_redirect(query)
-        if keyword_response:
-            print(f"\n[키워드 감지] '{query}'에 대한 빠른 응답 기능을 제공합니다.")
-            return keyword_response
-        context = self._hybrid_retrieve(query)
-        print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
+            # --- 예상 질문(predicted_questions) 선택 ---
+            selected_questions = []
+            if response_json.get("suggested_actions"):
+                first_action_name = response_json["suggested_actions"][0]['name']
+                selected_questions = self.predefined_questions.get(first_action_name,
+                                                                   self.predefined_questions['default'])
+            else:
+                selected_questions = self.predefined_questions['default']
 
-        response_json = self._generate_final_response(query, context, user_profile, history)
+            final_questions = []
+            # 사용자의 첫 번째 반려동물 정보를 가져옴 (없으면 None)
+            pet = user_profile['pet_info'][0] if user_profile.get('pet_info') else None
 
-        if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
-            action_details = []
-            valid_action_names = {func['name'] for func in self.site_functions}
-            for action_name in response_json["suggested_actions"]:
-                if action_name in valid_action_names:
-                    for func in self.site_functions:
-                        if func['name'] == action_name:
-                            action_details.append({
-                                "name": func['name'],
-                                "description": func['description'],
-                                "url": f"{self.base_url}{func['url']}"
-                            })
-            response_json["suggested_actions"] = action_details
-        else:
-            response_json["suggested_actions"] = []
+            for q_template in selected_questions:
+                if pet:
+                    # 반려동물 정보가 있으면, 템플릿에 정보를 채워 넣습니다.
+                    # .format()은 KeyError를 발생시킬 수 있으므로, .replace()를 안전하게 사용합니다.
+                    question = q_template.replace('{pet_name}', pet.get('name', '반려동물'))
+                    question = question.replace('{pet_species}', pet.get('species', '반려동물'))
+                    question = question.replace('{pet_age}', str(pet.get('age', 'N살')))  # 나이는 문자열로 변환
+                    final_questions.append(question)
+                else:
+                    # 반려동물 정보가 없으면, 템플릿 변수를 일반적인 단어로 바꿉니다.
+                    question = q_template.replace('{pet_name}', '반려동물')
+                    question = question.replace('{pet_species}', '반려동물')
+                    question = question.replace('{pet_age}', '우리 아이')
+                    final_questions.append(question)
 
-        if "predicted_questions" not in response_json or not isinstance(response_json["predicted_questions"], list):
-            response_json["predicted_questions"] = []
+            # response_json의 predicted_questions를 최종 완성된 질문 목록으로 덮어씁니다.
+            response_json["predicted_questions"] = final_questions[:3]
 
-        return response_json
+            return response_json
+
+        finally:
+            # [수정] try 블록의 작업이 끝나면(성공/실패 무관) 항상 원래 기능 목록으로 복원
+            self.site_functions = original_functions
+            if is_logged_in:
+                print("[요청 처리 완료] 기능 목록을 원래 상태로 복원합니다.")
+

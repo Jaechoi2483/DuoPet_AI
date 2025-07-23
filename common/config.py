@@ -90,6 +90,7 @@ class Settings(BaseSettings):
     ALLOWED_IMAGE_EXTENSIONS: List[str] = ["jpg", "jpeg", "png", "bmp"]
     ALLOWED_VIDEO_EXTENSIONS: List[str] = ["mp4", "avi", "mov", "mkv", "webm"]
 
+    SITE_URL: str = "http://localhost:3000"
     # --- External Services ---
     SPRING_BOOT_API_URL: str = "http://localhost:8080/api"
     SPRING_BOOT_API_KEY: Optional[str] = None

@@ -57,6 +57,10 @@ Google Drive/
 └── DuoPet_AI_Training/
     ├── datasets/
     │   └── eye_disease_dataset.zip
+    ├── scripts/ ← 여기!
+    │   ├── efficientNet_ai_train.py
+    │   ├── efficientNet_ops_3.py
+    │   └── ...
     ├── models/
     └── logs/
 ```
