@@ -14,6 +14,7 @@ models:
   base_path: ${MODEL_PATH:/app/models}
   
   face_recognition:
+    base_path: ${FACE_MODEL_PATH:C:/upload_files/face_embeddings}
     model_name: deepface_vggface
     version: 1.0
     weights: face_recognition_v1.pth
