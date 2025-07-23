@@ -10,7 +10,7 @@ task-master --version 2>/dev/null || npm install -g task-master-ai
 task-master --version
 
 # Quick setup check
-task-master models --status || echo "Note: You'll need to set up an AI provider API key"
+task-master db_models --status || echo "Note: You'll need to set up an AI provider API key"
 ```
 
 If you see "command not found" after installation, you may need to:

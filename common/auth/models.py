@@ -1,7 +1,7 @@
 """
-Authentication models for DuoPet AI Service
+Authentication db_models for DuoPet AI Service
 
-This module defines data models for API key management and authentication.
+This module defines data db_models for API key management and authentication.
 """
 
 from datetime import datetime

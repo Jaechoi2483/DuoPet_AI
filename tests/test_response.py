@@ -1,5 +1,5 @@
 """
-Test cases for standard API response models
+Test cases for standard API response db_models
 """
 
 import pytest

@@ -7,7 +7,7 @@ Guides you through setting up AI providers for Task Master.
 ## Execution
 
 ```bash
-task-master models --setup
+task-master db_models --setup
 ```
 
 ## Setup Process

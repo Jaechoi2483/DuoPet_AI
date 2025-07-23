@@ -1,7 +1,7 @@
 """
 Health Diagnosis Prediction Service
 
-This module provides prediction functions for health diagnosis models.
+This module provides prediction functions for health diagnosis db_models.
 It is fully integrated with the project's configuration and custom exceptions.
 """
 

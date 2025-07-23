@@ -8,7 +8,7 @@
 # Project Setup
 task-master init                                    # Initialize Task Master in current project
 task-master parse-prd .taskmaster/docs/prd.txt      # Generate tasks from PRD document
-task-master models --setup                        # Configure AI models interactively
+task-master db_models --setup                        # Configure AI db_models interactively
 
 # Daily Development Workflow
 task-master list                                   # Show all tasks with status
@@ -243,12 +243,12 @@ An API key is required for any provider used across any of the 3 roles defined i
 
 ```bash
 # Interactive setup (recommended)
-task-master models --setup
+task-master db_models --setup
 
-# Set specific models
-task-master models --set-main claude-3-5-sonnet-20241022
-task-master models --set-research perplexity-llama-3.1-sonar-large-128k-online
-task-master models --set-fallback gpt-4o-mini
+# Set specific db_models
+task-master db_models --set-main claude-3-5-sonnet-20241022
+task-master db_models --set-research perplexity-llama-3.1-sonar-large-128k-online
+task-master db_models --set-fallback gpt-4o-mini
 ```
 
 ## Task Structure & IDs
@@ -345,10 +345,10 @@ cd ../project-api && claude     # Terminal 2: API work
 cat .env                           # For CLI usage
 
 # Verify model configuration
-task-master models
+task-master db_models
 
 # Test with different model
-task-master models --set-fallback gpt-4o-mini
+task-master db_models --set-fallback gpt-4o-mini
 ```
 
 ### MCP Connection Issues

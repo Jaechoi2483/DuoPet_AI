@@ -50,7 +50,7 @@ COPY --from=builder /root/.local /home/appuser/.local
 COPY --chown=appuser:appuser . .
 
 # Create necessary directories
-RUN mkdir -p logs models/weights data/uploads && \
+RUN mkdir -p logs db_models/weights data/uploads && \
     chown -R appuser:appuser /app
 
 # Switch to app user

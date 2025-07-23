@@ -8,7 +8,7 @@ def check_model_files():
     """Check if all model files are properly copied"""
     
     base_path = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-    models_path = os.path.join(base_path, 'models', 'health_diagnosis')
+    models_path = os.path.join(base_path, 'db_models', 'health_diagnosis')
     
     print("🔍 Checking model files...")
     print(f"Base path: {models_path}")
@@ -22,10 +22,10 @@ def check_model_files():
     else:
         print("❌ BCS model NOT found")
         
-    # Check skin disease models
+    # Check skin disease db_models
     skin_path = os.path.join(models_path, 'skin_disease')
     
-    # Classification models
+    # Classification db_models
     class_models = {
         'cat_binary': 'classification/cat_binary/checkpoint',
         'dog_binary': 'classification/dog_binary/checkpoint',
@@ -41,7 +41,7 @@ def check_model_files():
         else:
             print(f"  ❌ {name}")
             
-    # Segmentation models
+    # Segmentation db_models
     print("\n📁 Skin Disease Segmentation Models:")
     seg_models = ['cat_A2', 'dog_A1', 'dog_A2', 'dog_A3', 'dog_A4', 'dog_A5', 'dog_A6']
     for model in seg_models:
@@ -51,9 +51,9 @@ def check_model_files():
         else:
             print(f"  ❌ {model}")
             
-    # Check behavior models
+    # Check behavior db_models
     print("\n📁 Behavior Analysis Models:")
-    behavior_path = os.path.join(base_path, 'models', 'behavior_analysis')
+    behavior_path = os.path.join(base_path, 'db_models', 'behavior_analysis')
     
     behavior_models = {
         'YOLO CatDog': 'detection/behavior_yolo_catdog_v1.pt',
@@ -70,9 +70,9 @@ def check_model_files():
         else:
             print(f"  ❌ {name}")
             
-    # Check chatbot models
+    # Check chatbot db_models
     print("\n📁 Chatbot Models:")
-    chatbot_path = os.path.join(base_path, 'models', 'chatbot')
+    chatbot_path = os.path.join(base_path, 'db_models', 'chatbot')
     
     chatbot_models = {
         'KoGPT2': 'chatbot_kogpt2_v1/pytorch_model.bin',
