@@ -204,4 +204,8 @@ def get_mongodb_url() -> str:
 
 def get_model_path(model_filename: str) -> str:
     """모델 파일의 전체 경로를 반환합니다."""
-    return os.path.join(get_settings().MODEL_PATH, model_filename)
+    # 상대 경로 사용 - OS 관계없이 작동
+    from pathlib import Path
+    BASE_DIR = Path(__file__).resolve().parent.parent  # DuoPet_AI 폴더
+    model_path = BASE_DIR / "models" / model_filename
+    return str(model_path)

@@ -6,7 +6,6 @@ import os
 
 import cv2
 import pandas as pd
-import image
 import numpy as np
 import requests
 from fastapi import UploadFile
