@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379"
 
     # --- Model Configuration ---
-    MODEL_PATH: str = os.path.join(PROJECT_ROOT_DIR, "models")
+    MODEL_PATH: str = os.path.join(PROJECT_ROOT_DIR, "db_models")
     MAX_BATCH_SIZE: int = 32
     GPU_DEVICE: str = "cuda:0"
     USE_GPU: bool = True
@@ -156,7 +156,7 @@ class ModelConfig:
     
     def get_model_config(self, model_name: str) -> Dict[str, Any]:
         """특정 모델의 설정을 가져옵니다."""
-        return self._config.get("models", {}).get(model_name, {})
+        return self._config.get("db_models", {}).get(model_name, {})
     
     def get_preprocessing_config(self, data_type: str) -> Dict[str, Any]:
         """전처리 설정을 가져옵니다."""

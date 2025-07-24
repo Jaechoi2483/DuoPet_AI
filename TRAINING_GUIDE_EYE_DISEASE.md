@@ -288,7 +288,7 @@ model.compile(
 )
 
 # 콜백 설정
-checkpoint_path = "/content/drive/MyDrive/DuoPet_AI_Training/models/eye_disease_best_model.h5"
+checkpoint_path = "/content/drive/MyDrive/DuoPet_AI_Training/db_models/eye_disease_best_model.h5"
 callbacks = [
     ModelCheckpoint(
         checkpoint_path,
@@ -420,7 +420,7 @@ plt.show()
 print(f"H5 모델 저장 위치: {checkpoint_path}")
 
 # 2. TensorFlow SavedModel 형식 (권장)
-savedmodel_path = "/content/drive/MyDrive/DuoPet_AI_Training/models/eye_disease_savedmodel"
+savedmodel_path = "/content/drive/MyDrive/DuoPet_AI_Training/db_models/eye_disease_savedmodel"
 best_model.save(savedmodel_path)
 print(f"SavedModel 저장 위치: {savedmodel_path}")
 
@@ -444,7 +444,7 @@ config = {
     }
 }
 
-config_path = "/content/drive/MyDrive/DuoPet_AI_Training/models/eye_disease_config.json"
+config_path = "/content/drive/MyDrive/DuoPet_AI_Training/db_models/eye_disease_config.json"
 with open(config_path, 'w', encoding='utf-8') as f:
     json.dump(config, f, ensure_ascii=False, indent=2)
 print(f"설정 파일 저장 위치: {config_path}")

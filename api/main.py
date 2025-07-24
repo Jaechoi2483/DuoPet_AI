@@ -267,7 +267,7 @@ async def health_check():
         "status": "healthy" if all_ok else "degraded",
         "checks": {
             "api": "ok",
-            "models": "ok",  # TODO: Implement actual model health check
+            "db_models": "ok",  # TODO: Implement actual model health check
             "database": "ok" if oracle_ok else "error"  # Oracle DB 상태
         }
     }
@@ -378,7 +378,7 @@ if settings.DEBUG:
 
 # Background tasks
 async def periodic_model_update():
-    """Periodically update AI models (example background task)"""
+    """Periodically update AI db_models (example background task)"""
     while True:
         try:
             await asyncio.sleep(86400)  # 24 hours

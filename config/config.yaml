@@ -11,7 +11,7 @@ server:
   reload: false
 
 models:
-  base_path: ${MODEL_PATH:/app/models}
+  base_path: ${MODEL_PATH:/app/db_models}
   
   face_recognition:
     base_path: ${FACE_MODEL_PATH:C:/upload_files/face_embeddings}

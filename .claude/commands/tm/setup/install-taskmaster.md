@@ -49,7 +49,7 @@ This command helps you get Task Master set up globally on your system.
    Ensure you have at least one AI provider API key set:
    ```bash
    # Check current configuration
-   task-master models --status
+   task-master db_models --status
    
    # If no API keys found, guide setup
    echo "You'll need at least one API key:"

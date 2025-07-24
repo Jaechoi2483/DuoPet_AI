@@ -112,6 +112,7 @@ uploads/*
 ehthumbs.db
 Thumbs.db
 
+CLAUDE.md
 
 # 💡 ChromaDB persistent data
 /chroma_data/

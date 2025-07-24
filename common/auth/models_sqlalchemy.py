@@ -1,5 +1,5 @@
 """
-SQLAlchemy models for API Key authentication
+SQLAlchemy db_models for API Key authentication
 """
 
 from datetime import datetime
