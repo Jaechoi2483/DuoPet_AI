@@ -3,7 +3,6 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from services.video_recommend.db_models.content_entity import ContentEntity
-from common.database_sqlalchemy import get_db
 from common.config import get_settings
 
 """

@@ -11,6 +11,10 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
+import tensorflow as tf
+print("🔥 TensorFlow 경로:", tf.__file__)
+print("🧩 TensorFlow 속성 목록:", dir(tf))
+
 from services.chatbot.predict import RAGChatbot
 
 
