@@ -15,6 +15,16 @@ mediapipe==0.10.7
 ultralytics==8.0.200  # YOLOv8/v12
 efficientnet-pytorch==0.7.1
 
+# DeepLabCut and Pose Estimation
+deeplabcut[tf]
+deeplabcut-live
+imgaug>=0.4.0
+filterpy>=1.4.5
+numba>=0.58.1
+
+# Custom YOLOv5 dependencies
+Cython
+
 # NLP and APIs
 openai==1.6.1
 keybert==0.8.3
@@ -44,6 +54,7 @@ requests==2.31.0
 aiofiles==23.2.1
 pytest==7.4.3
 pytest-asyncio==0.21.1
+tqdm==4.66.1
 
 # Logging and Monitoring
 loguru==0.7.2
