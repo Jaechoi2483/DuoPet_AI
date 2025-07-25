@@ -17,8 +17,6 @@ import torch
 from common.response import StandardResponse, create_success_response, create_error_response, ErrorCode
 from common.logger import get_logger
 from common.exceptions import ValidationError, ModelInferenceError
-from services.behavior_analysis.predict import predictor, BehaviorAnalysisPredictorSingleton
-from services.behavior_analysis.enhanced_predict import enhanced_predictor, EnhancedBehaviorAnalysisPredictorSingleton
 from services.behavior_analysis.model_manager import model_manager
 from services.behavior_analysis.error_handler import error_handler
 
@@ -27,11 +25,19 @@ logger = get_logger(__name__)
 # Use enhanced predictor if available
 try:
     # Try to use enhanced predictor with pose estimation
+    from services.behavior_analysis.enhanced_predict import enhanced_predictor, EnhancedBehaviorAnalysisPredictorSingleton
     predictor = enhanced_predictor
     BehaviorAnalysisPredictorSingleton = EnhancedBehaviorAnalysisPredictorSingleton
     logger.info("Using enhanced behavior analysis with pose estimation")
+    logger.info(f"Enhanced predictor type: {type(enhanced_predictor).__name__}")
+    logger.info(f"Enhanced predictor object: {enhanced_predictor}")
+    logger.info(f"Enhanced predictor class: {enhanced_predictor.__class__.__name__}")
 except Exception as e:
-    logger.warning(f"Failed to load enhanced predictor, using standard: {e}")
+    import traceback
+    logger.error(f"Failed to load enhanced predictor: {e}")
+    logger.error(f"Traceback: {traceback.format_exc()}")
+    from services.behavior_analysis.predict import predictor, BehaviorAnalysisPredictorSingleton
+    logger.info(f"Standard predictor type: {type(predictor).__name__}")
 
 router = APIRouter()
 
@@ -48,6 +54,22 @@ class BehaviorDetection(BaseModel):
     is_abnormal: bool = Field(..., description="Whether behavior is abnormal")
 
 
+class PoseMetrics(BaseModel):
+    """Pose-based metrics for behavior quality assessment"""
+    balance_index: float = Field(0.0, ge=0, le=1, description="Left-right symmetry score")
+    stability_score: float = Field(0.0, ge=0, le=1, description="Posture stability score")
+    movement_smoothness: float = Field(0.0, ge=0, le=1, description="Movement smoothness score")
+    activity_level: float = Field(0.0, ge=0, le=1, description="Overall activity intensity")
+    center_of_mass_stability: float = Field(0.0, ge=0, le=1, description="Center of mass stability")
+
+
+class TemporalAnalysis(BaseModel):
+    """Temporal analysis of behaviors"""
+    behavior_durations: Dict[str, float] = Field(default_factory=dict, description="Duration of each behavior type")
+    behavior_transitions: Dict[str, int] = Field(default_factory=dict, description="Behavior transition patterns")
+    activity_periods: List[Dict[str, float]] = Field(default_factory=list, description="Active vs rest periods")
+
+
 class BehaviorAnalysisResult(BaseModel):
     """Behavior analysis result model"""
     video_duration: float = Field(..., description="Total video duration in seconds")
@@ -57,6 +79,8 @@ class BehaviorAnalysisResult(BaseModel):
     analysis_id: str = Field(..., description="Unique analysis ID")
     pose_estimation_used: bool = Field(False, description="Whether pose estimation was used")
     pose_usage_percentage: float = Field(0.0, description="Percentage of frames with pose estimation")
+    pose_metrics: Optional[PoseMetrics] = Field(None, description="Pose-based quality metrics")
+    temporal_analysis: Optional[TemporalAnalysis] = Field(None, description="Temporal behavior analysis")
 
 
 @router.post("/analyze", response_model=StandardResponse)
@@ -133,6 +157,12 @@ async def analyze_behavior(
                 pet_type
             )
             
+            # 디버깅 로그 추가
+            logger.info(f"Predictor type: {type(predictor).__name__}")
+            logger.info(f"Result keys: {list(result.keys())}")
+            logger.info(f"Has pose_metrics: {'pose_metrics' in result}")
+            logger.info(f"Has temporal_analysis: {'temporal_analysis' in result}")
+            
             # 결과 포맷팅
             behaviors = []
             for seq in result.get('behavior_sequences', []):
@@ -144,6 +174,16 @@ async def analyze_behavior(
                     is_abnormal=seq['behavior']['is_abnormal']
                 ))
                 
+            # Extract pose metrics if available
+            pose_metrics = None
+            if result.get('pose_metrics'):
+                pose_metrics = PoseMetrics(**result['pose_metrics'])
+            
+            # Extract temporal analysis if available
+            temporal_analysis = None
+            if result.get('temporal_analysis'):
+                temporal_analysis = TemporalAnalysis(**result['temporal_analysis'])
+            
             analysis_result = BehaviorAnalysisResult(
                 video_duration=result['video_duration'],
                 behaviors=behaviors,
@@ -159,7 +199,9 @@ async def analyze_behavior(
                 ],
                 analysis_id=analysis_id,
                 pose_estimation_used=result.get('pose_estimation_used', False),
-                pose_usage_percentage=result.get('pose_usage_percentage', 0.0)
+                pose_usage_percentage=result.get('pose_usage_percentage', 0.0),
+                pose_metrics=pose_metrics,
+                temporal_analysis=temporal_analysis
             )
             
             return create_success_response(data=analysis_result.model_dump())
@@ -233,6 +275,16 @@ async def get_analysis_status(analysis_id: str):
                 is_abnormal=seq['behavior']['is_abnormal']
             ).model_dump())
             
+        # Extract pose metrics if available
+        pose_metrics = None
+        if result.get('pose_metrics'):
+            pose_metrics = result['pose_metrics']
+        
+        # Extract temporal analysis if available
+        temporal_analysis = None
+        if result.get('temporal_analysis'):
+            temporal_analysis = result['temporal_analysis']
+        
         analysis_result = {
             "analysis_id": analysis_id,
             "status": "completed",
@@ -249,7 +301,9 @@ async def get_analysis_status(analysis_id: str):
                 } for ab in result['abnormal_behaviors']
             ],
             "pose_estimation_used": result.get('pose_estimation_used', False),
-            "pose_usage_percentage": result.get('pose_usage_percentage', 0.0)
+            "pose_usage_percentage": result.get('pose_usage_percentage', 0.0),
+            "pose_metrics": pose_metrics,
+            "temporal_analysis": temporal_analysis
         }
         
         return create_success_response(data=analysis_result)
@@ -572,6 +626,7 @@ async def process_video_background(video_path: str, analysis_id: str, pet_type: 
         logger.info(f"Pet type: {pet_type}")
         
         try:
+            logger.info(f"Using predictor: {type(predictor).__name__}")
             result = await asyncio.to_thread(
                 predictor.analyze_video,
                 video_path,
@@ -579,6 +634,7 @@ async def process_video_background(video_path: str, analysis_id: str, pet_type: 
                 update_progress
             )
             logger.info(f"Analysis result received: {result is not None}")
+            logger.info(f"Result keys: {list(result.keys()) if result else 'None'}")
             
             # 결과가 None이거나 비어있는 경우
             if not result:
@@ -593,6 +649,8 @@ async def process_video_background(video_path: str, analysis_id: str, pet_type: 
             
             logger.info(f"Video analysis completed: {analysis_id}")
             logger.info(f"Result summary: {result.get('behavior_summary', {})}")
+            logger.info(f"Pose metrics included: {result.get('pose_metrics') is not None}")
+            logger.info(f"Temporal analysis included: {result.get('temporal_analysis') is not None}")
             
         except Exception as analysis_error:
             logger.error(f"Error during analysis: {type(analysis_error).__name__}: {str(analysis_error)}")
