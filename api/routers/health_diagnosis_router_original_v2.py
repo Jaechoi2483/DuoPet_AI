@@ -10,7 +10,7 @@ from typing import List, Optional, Dict
 import os
 from pathlib import Path
 
-from common.response import StandardResponse, create_success_response, create_error_response, ErrorCode
+from common.response import StandardResponse, create_success_response, create_error_response
 from common.logger import get_logger
 from services.eye_disease_service import EyeDiseaseService
 from services.bcs_service import BCSService
@@ -46,26 +46,21 @@ except Exception as e:
     logger.error(f"Failed to initialize EyeDiseaseService: {e}", exc_info=True)
     eye_disease_service = None
 
-# Initialize BCS Service (지연 로딩 옵션)
-_bcs_service = None
+# Initialize BCS Service
 try:
-    if os.getenv('SKIP_BCS_MODEL', 'false').lower() != 'true':
-        # Use same project root path resolution
-        BCS_MODEL_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "bcs_efficientnet_v1.h5"
-        BCS_CONFIG_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "config.yaml"
-        
-        if BCS_MODEL_PATH.exists():
-            bcs_service = BCSService(
-                model_path=str(BCS_MODEL_PATH),
-                config_path=str(BCS_CONFIG_PATH) if BCS_CONFIG_PATH.exists() else None
-            )
-            logger.info("BCSService initialized successfully.")
-        else:
-            bcs_service = None
-            logger.error(f"BCS model not found at: {BCS_MODEL_PATH}")
+    # Use same project root path resolution
+    BCS_MODEL_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "bcs_efficientnet_v1.h5"
+    BCS_CONFIG_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "config.yaml"
+    
+    if BCS_MODEL_PATH.exists():
+        bcs_service = BCSService(
+            model_path=str(BCS_MODEL_PATH),
+            config_path=str(BCS_CONFIG_PATH) if BCS_CONFIG_PATH.exists() else None
+        )
+        logger.info("BCSService initialized successfully.")
     else:
         bcs_service = None
-        logger.info("Skipping BCS model initialization (SKIP_BCS_MODEL=true)")
+        logger.error(f"BCS model not found at: {BCS_MODEL_PATH}")
         
 except Exception as e:
     logger.error(f"Failed to initialize BCSService: {e}", exc_info=True)
@@ -262,7 +257,7 @@ async def analyze_eye_disease(
         allowed_extensions = {".jpg", ".jpeg", ".png"}
         file_extension = os.path.splitext(image.filename)[1].lower()
         if file_extension not in allowed_extensions:
-            return create_error_response(error_code=ErrorCode.BAD_REQUEST, message="Invalid image format. Only JPG, JPEG, PNG are allowed.")
+            return create_error_response(message="Invalid image format. Only JPG, JPEG, PNG are allowed.", code="400")
 
         # 서비스 호출하여 진단 수행
         result = service.diagnose(image)

@@ -1,0 +1,48 @@
+# Task ID: 15
+# Title: Create Behavior Analysis API Endpoint
+# Status: pending
+# Dependencies: 2, 4, 14
+# Priority: high
+# Description: Implement the REST API endpoint for video-based pet behavior analysis.
+# Details:
+Create the POST /api/v1/behavior-analysis endpoint that accepts pet videos and returns behavior analysis results. Handle video upload and processing. Implement proper validation and error handling for video processing.
+
+```python
+from fastapi import APIRouter, Depends, File, UploadFile, Form
+from app.services.behavior_analysis import BehaviorAnalysisService
+from app.core.auth import get_api_key
+
+router = APIRouter()
+
+@router.post("/behavior-analysis", response_model=StandardResponse)
+async def analyze_behavior(
+    file: UploadFile = File(...),
+    max_duration: int = Form(30),  # Maximum video duration in seconds
+    api_key: str = Depends(get_api_key),
+    analysis_service: BehaviorAnalysisService = Depends()
+):
+    try:
+        # Validate video format
+        if file.content_type not in ["video/mp4", "video/avi", "video/quicktime"]:
+            return {"success": False, "error": "Unsupported video format. Please upload MP4, AVI, or MOV."}
+        
+        # Read video data
+        video_data = await file.read()
+        
+        # Check video size
+        if len(video_data) > 50 * 1024 * 1024:  # 50MB limit
+            return {"success": False, "error": "Video file too large. Maximum size is 50MB."}
+        
+        # Process video
+        analysis_result = await analysis_service.analyze(video_data)
+        
+        return {
+            "success": True,
+            "data": analysis_result
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+# Test Strategy:
+Test endpoint with various video formats and sizes. Verify analysis results with test videos of known behaviors. Test error handling with invalid videos. Measure response time under different loads.

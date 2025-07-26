@@ -1,0 +1,54 @@
+# Task ID: 8
+# Title: Implement GPT-based Chatbot Service
+# Status: pending
+# Dependencies: 1, 2, 5
+# Priority: high
+# Description: Develop the AI chatbot service using KeyBERT for keyword extraction and OpenAI GPT API for responses.
+# Details:
+Create a service that extracts keywords from user queries using KeyBERT, then generates contextually relevant responses using OpenAI's GPT API. Implement conversation context management to maintain coherent multi-turn dialogues. Focus on pet-related queries and responses.
+
+```python
+from keybert import KeyBERT
+import openai
+from typing import List, Dict
+
+class ChatbotService:
+    def __init__(self, config):
+        self.keybert_model = KeyBERT()
+        openai.api_key = config.OPENAI_API_KEY
+        self.conversation_history = {}
+        self.max_history_length = 5
+    
+    def extract_keywords(self, query: str) -> List[str]:
+        keywords = self.keybert_model.extract_keywords(query, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=3)
+        return [kw for kw, _ in keywords]
+    
+    def generate_response(self, user_id: str, query: str) -> str:
+        # Extract keywords
+        keywords = self.extract_keywords(query)
+        
+        # Get conversation history
+        history = self.conversation_history.get(user_id, [])
+        
+        # Prepare prompt with context and pet focus
+        prompt = f"As a pet care assistant, respond to this query about pets: {query}\n\nRelevant keywords: {', '.join(keywords)}"
+        
+        # Generate response using OpenAI GPT
+        response = openai.Completion.create(
+            model="gpt-3.5-turbo",
+            messages=history + [{"role": "user", "content": prompt}],
+            max_tokens=150
+        )
+        
+        # Update conversation history
+        history.append({"role": "user", "content": query})
+        history.append({"role": "assistant", "content": response.choices[0].message.content})
+        if len(history) > self.max_history_length * 2:
+            history = history[-self.max_history_length * 2:]
+        self.conversation_history[user_id] = history
+        
+        return response.choices[0].message.content
+```
+
+# Test Strategy:
+Test keyword extraction with various pet-related queries. Verify response relevance and accuracy. Test conversation context maintenance across multiple turns. Measure response generation time and API usage efficiency.

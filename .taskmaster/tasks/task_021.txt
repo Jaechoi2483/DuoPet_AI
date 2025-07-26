@@ -1,0 +1,536 @@
+# Task ID: 21
+# Title: Fix TensorFlow Model Loading and Normalization Layer Compatibility
+# Status: pending
+# Dependencies: 1, 3, 5, 16
+# Priority: high
+# Description: Resolve compatibility issues with TensorFlow model loading, particularly focusing on normalization layer compatibility to ensure AI models can be used in production.
+# Details:
+This task involves diagnosing and fixing issues with TensorFlow model loading and normalization layer compatibility:
+
+1. Identify the specific normalization layer compatibility issues:
+   - Check for version mismatches between the saved model and current TensorFlow version
+   - Examine custom normalization layers that may not be properly serialized
+   - Verify preprocessing steps match between training and inference
+
+2. Implement a robust model loading mechanism:
+```python
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+import os
+
+class ModelLoader:
+    def __init__(self, model_path, custom_objects=None):
+        self.model_path = model_path
+        self.custom_objects = custom_objects or {}
+        
+    def load(self, compile=False):
+        """Load model with proper error handling and version compatibility"""
+        try:
+            # Try standard loading first
+            model = load_model(self.model_path, compile=compile, 
+                              custom_objects=self.custom_objects)
+            return model
+        except (ImportError, ValueError) as e:
+            print(f"Standard loading failed: {e}")
+            # Try alternative loading approaches
+            return self._load_with_fallback(compile)
+    
+    def _load_with_fallback(self, compile):
+        """Attempt alternative loading methods"""
+        # Try loading with SavedModel format
+        try:
+            model = tf.saved_model.load(self.model_path)
+            return model
+        except Exception as e:
+            print(f"SavedModel loading failed: {e}")
+        
+        # Try loading with normalization layer workaround
+        try:
+            # Register custom normalization layer implementations
+            self._register_normalization_layers()
+            model = load_model(self.model_path, compile=compile,
+                              custom_objects=self.custom_objects)
+            return model
+        except Exception as e:
+            print(f"Normalization layer workaround failed: {e}")
+            
+        raise ValueError(f"Failed to load model from {self.model_path}")
+    
+    def _register_normalization_layers(self):
+        """Register custom implementations of normalization layers"""
+        # Example custom normalization layer implementation
+        class CustomNormalization(tf.keras.layers.Layer):
+            def __init__(self, mean=0.0, variance=1.0, **kwargs):
+                super().__init__(**kwargs)
+                self.mean = mean
+                self.variance = variance
+                
+            def call(self, inputs):
+                return (inputs - self.mean) / tf.sqrt(self.variance + 1e-10)
+                
+            def get_config(self):
+                config = super().get_config()
+                config.update({
+                    "mean": self.mean,
+                    "variance": self.variance
+                })
+                return config
+                
+        self.custom_objects["CustomNormalization"] = CustomNormalization
+```
+
+3. Create a normalization compatibility layer:
+```python
+class NormalizationAdapter:
+    """Adapter to handle different normalization approaches"""
+    
+    @staticmethod
+    def create_preprocessing_function(model_config):
+        """Create a preprocessing function based on model configuration"""
+        mean = model_config.get("mean", [0.0, 0.0, 0.0])
+        std = model_config.get("std", [1.0, 1.0, 1.0])
+        
+        def preprocess(image):
+            # Convert to float32 if needed
+            if image.dtype != tf.float32:
+                image = tf.cast(image, tf.float32)
+            
+            # Apply normalization
+            image = (image - mean) / std
+            return image
+            
+        return preprocess
+    
+    @staticmethod
+    def adapt_model_normalization(model, input_shape):
+        """Add preprocessing layer to model if needed"""
+        # Check if model already has normalization
+        has_normalization = any(
+            "normalization" in layer.name.lower() 
+            for layer in model.layers
+        )
+        
+        if not has_normalization:
+            # Create new model with normalization layer
+            inputs = tf.keras.Input(shape=input_shape)
+            norm_layer = tf.keras.layers.Normalization()
+            # Adapt the normalization layer to your data
+            # This would require sample data
+            x = norm_layer(inputs)
+            x = model(x)
+            new_model = tf.keras.Model(inputs=inputs, outputs=x)
+            return new_model
+        
+        return model
+```
+
+4. Implement model version compatibility checks:
+```python
+def check_tf_compatibility(model_path):
+    """Check TensorFlow version compatibility with saved model"""
+    # Extract TensorFlow version from saved model
+    try:
+        with open(os.path.join(model_path, 'saved_model.pb'), 'rb') as f:
+            data = f.read()
+            # Look for version information in the protobuf
+            version_info = extract_version_info(data)
+            current_version = tf.__version__
+            
+            print(f"Model TF version: {version_info}")
+            print(f"Current TF version: {current_version}")
+            
+            # Compare versions and provide compatibility warnings
+            if version_info != current_version:
+                print("WARNING: Version mismatch may cause compatibility issues")
+                # Provide specific guidance based on versions
+    except Exception as e:
+        print(f"Could not determine model version: {e}")
+```
+
+5. Create a unified model interface that handles all compatibility issues:
+```python
+class AIModelInterface:
+    """Unified interface for AI models with compatibility handling"""
+    
+    def __init__(self, model_path, config=None):
+        self.config = config or {}
+        self.model_loader = ModelLoader(
+            model_path, 
+            custom_objects=self.config.get("custom_objects", {})
+        )
+        self.model = None
+        self.input_shape = self.config.get("input_shape")
+        
+    def initialize(self):
+        """Load and prepare the model for inference"""
+        # Check compatibility
+        check_tf_compatibility(self.model_path)
+        
+        # Load model
+        self.model = self.model_loader.load()
+        
+        # Setup preprocessing
+        self.preprocess_fn = NormalizationAdapter.create_preprocessing_function(
+            self.config
+        )
+        
+        # Adapt model if needed
+        if self.input_shape:
+            self.model = NormalizationAdapter.adapt_model_normalization(
+                self.model, self.input_shape
+            )
+            
+        # Warmup inference
+        self._warmup()
+        
+        return self
+        
+    def _warmup(self):
+        """Run warmup inference to initialize model"""
+        if self.input_shape:
+            dummy_input = tf.random.normal([1] + list(self.input_shape))
+            _ = self.predict(dummy_input)
+            
+    def predict(self, input_data):
+        """Run inference with proper preprocessing"""
+        # Ensure model is loaded
+        if self.model is None:
+            self.initialize()
+            
+        # Preprocess input
+        processed_input = self.preprocess_fn(input_data)
+        
+        # Run inference
+        try:
+            result = self.model(processed_input)
+            return result
+        except Exception as e:
+            print(f"Inference error: {e}")
+            # Try alternative inference approach
+            if hasattr(self.model, "predict"):
+                return self.model.predict(processed_input)
+            raise
+```
+
+6. Update the API service to use the new model interface:
+```python
+from fastapi import FastAPI, HTTPException
+import tensorflow as tf
+
+app = FastAPI()
+
+# Initialize model interface
+model_interface = AIModelInterface(
+    model_path="path/to/model",
+    config={
+        "input_shape": (224, 224, 3),
+        "mean": [0.485, 0.456, 0.406],
+        "std": [0.229, 0.224, 0.225]
+    }
+)
+
+@app.on_event("startup")
+async def startup_event():
+    # Initialize model on startup
+    model_interface.initialize()
+
+@app.post("/predict")
+async def predict(data: dict):
+    try:
+        # Convert input data to tensor
+        input_tensor = tf.convert_to_tensor(data["image"])
+        
+        # Run prediction
+        result = model_interface.predict(input_tensor)
+        
+        # Convert result to Python types for JSON response
+        if isinstance(result, tf.Tensor):
+            result = result.numpy().tolist()
+            
+        return {"prediction": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+# Test Strategy:
+To verify the TensorFlow model loading and normalization layer compatibility fixes:
+
+1. Unit test the ModelLoader class:
+   - Test loading models with different TensorFlow versions
+   - Test loading models with custom normalization layers
+   - Test fallback mechanisms with intentionally corrupted models
+   - Verify error handling for non-existent models
+
+```python
+import unittest
+import tensorflow as tf
+import tempfile
+import os
+
+class TestModelLoader(unittest.TestCase):
+    def setUp(self):
+        # Create a simple test model
+        inputs = tf.keras.Input(shape=(10,))
+        x = tf.keras.layers.Dense(5, activation='relu')(inputs)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+        self.test_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        
+        # Save the model to a temporary directory
+        self.temp_dir = tempfile.mkdtemp()
+        self.model_path = os.path.join(self.temp_dir, 'test_model')
+        self.test_model.save(self.model_path)
+        
+    def test_standard_loading(self):
+        loader = ModelLoader(self.model_path)
+        loaded_model = loader.load()
+        self.assertIsNotNone(loaded_model)
+        
+        # Test inference works
+        test_input = tf.random.normal((1, 10))
+        original_output = self.test_model(test_input)
+        loaded_output = loaded_model(test_input)
+        tf.debugging.assert_near(original_output, loaded_output)
+        
+    def test_custom_normalization(self):
+        # Create model with custom normalization
+        inputs = tf.keras.Input(shape=(10,))
+        norm = CustomNormalization(mean=5.0, variance=2.0)(inputs)
+        x = tf.keras.layers.Dense(5, activation='relu')(norm)
+        outputs = tf.keras.layers.Dense(1, activation='sigmoid')(x)
+        custom_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        
+        # Save model
+        custom_model_path = os.path.join(self.temp_dir, 'custom_model')
+        custom_model.save(custom_model_path)
+        
+        # Test loading with custom objects
+        loader = ModelLoader(
+            custom_model_path, 
+            custom_objects={"CustomNormalization": CustomNormalization}
+        )
+        loaded_model = loader.load()
+        self.assertIsNotNone(loaded_model)
+```
+
+2. Integration test the NormalizationAdapter:
+   - Test preprocessing function with various input formats
+   - Test model adaptation with and without existing normalization layers
+   - Verify normalization parameters are correctly applied
+
+```python
+class TestNormalizationAdapter(unittest.TestCase):
+    def test_preprocessing_function(self):
+        # Test with default values
+        config = {}
+        preprocess_fn = NormalizationAdapter.create_preprocessing_function(config)
+        
+        # Create test image
+        test_image = tf.random.uniform((224, 224, 3), 0, 255, dtype=tf.float32)
+        processed = preprocess_fn(test_image)
+        
+        # Check normalization was applied
+        self.assertTrue(tf.reduce_mean(processed) < 1.0)
+        
+        # Test with custom values
+        config = {"mean": [127.5, 127.5, 127.5], "std": [127.5, 127.5, 127.5]}
+        preprocess_fn = NormalizationAdapter.create_preprocessing_function(config)
+        processed = preprocess_fn(test_image)
+        
+        # Check values are in [-1, 1] range
+        self.assertTrue(tf.reduce_max(processed) <= 1.0)
+        self.assertTrue(tf.reduce_min(processed) >= -1.0)
+```
+
+3. End-to-end test the AIModelInterface:
+   - Test initialization with different model configurations
+   - Test prediction with various input types
+   - Verify error handling and recovery mechanisms
+   - Test performance with batch processing
+
+```python
+class TestAIModelInterface(unittest.TestCase):
+    def setUp(self):
+        # Create and save a test model
+        inputs = tf.keras.Input(shape=(224, 224, 3))
+        x = tf.keras.layers.Conv2D(16, 3, activation='relu')(inputs)
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        outputs = tf.keras.layers.Dense(10, activation='softmax')(x)
+        self.test_model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        
+        self.temp_dir = tempfile.mkdtemp()
+        self.model_path = os.path.join(self.temp_dir, 'test_model')
+        self.test_model.save(self.model_path)
+        
+    def test_model_interface(self):
+        # Initialize interface
+        interface = AIModelInterface(
+            self.model_path,
+            config={"input_shape": (224, 224, 3)}
+        )
+        interface.initialize()
+        
+        # Test prediction
+        test_input = tf.random.normal((1, 224, 224, 3))
+        result = interface.predict(test_input)
+        
+        # Check result shape
+        self.assertEqual(result.shape, (1, 10))
+```
+
+4. API endpoint testing:
+   - Test the API endpoint with valid and invalid inputs
+   - Verify error handling and response formats
+   - Test concurrent requests to ensure thread safety
+
+```python
+from fastapi.testclient import TestClient
+from app import app  # Import your FastAPI app
+
+client = TestClient(app)
+
+def test_predict_endpoint():
+    # Create test data
+    test_data = {
+        "image": [[[[0.5, 0.5, 0.5]] * 224] * 224]  # Simple 224x224x3 image
+    }
+    
+    # Test valid request
+    response = client.post("/predict", json=test_data)
+    assert response.status_code == 200
+    assert "prediction" in response.json()
+    
+    # Test invalid request
+    response = client.post("/predict", json={"wrong_key": "value"})
+    assert response.status_code == 500
+```
+
+5. Performance testing:
+   - Measure model loading time with and without optimizations
+   - Test inference speed with batch processing
+   - Verify memory usage during model loading and inference
+
+```python
+import time
+import psutil
+import numpy as np
+
+def test_model_loading_performance():
+    # Measure loading time
+    start_time = time.time()
+    interface = AIModelInterface(model_path)
+    interface.initialize()
+    loading_time = time.time() - start_time
+    
+    print(f"Model loading time: {loading_time:.2f} seconds")
+    
+    # Measure memory usage
+    process = psutil.Process(os.getpid())
+    memory_info = process.memory_info()
+    print(f"Memory usage: {memory_info.rss / 1024 / 1024:.2f} MB")
+    
+def test_inference_performance():
+    interface = AIModelInterface(model_path)
+    interface.initialize()
+    
+    # Create batch input
+    batch_size = 32
+    batch_input = tf.random.normal((batch_size, 224, 224, 3))
+    
+    # Warmup
+    _ = interface.predict(batch_input[:1])
+    
+    # Measure inference time
+    start_time = time.time()
+    _ = interface.predict(batch_input)
+    inference_time = time.time() - start_time
+    
+    print(f"Batch inference time: {inference_time:.2f} seconds")
+    print(f"Time per sample: {inference_time / batch_size * 1000:.2f} ms")
+```
+
+6. Compatibility testing:
+   - Test with different TensorFlow versions (1.x, 2.x)
+   - Test with models trained on different frameworks (Keras, PyTorch converted)
+   - Verify compatibility with different hardware (CPU, GPU, TPU)
+
+# Subtasks:
+## 1. Diagnose Normalization Layer Compatibility Issues [done]
+### Dependencies: None
+### Description: Identify specific normalization layer compatibility issues by examining model architecture, TensorFlow version mismatches, and serialization problems.
+### Details:
+Create a diagnostic function that analyzes saved models to identify normalization layer issues:
+1. Extract model metadata to check TensorFlow version used for training
+2. Examine model architecture to identify normalization layers
+3. Check for custom normalization implementations
+4. Verify serialization format compatibility
+5. Test loading the model with different TensorFlow versions
+6. Generate a detailed report of identified issues
+
+Implement a function that can be run on problematic models to output specific compatibility issues.
+
+## 2. Implement Robust Model Loading Mechanism [pending]
+### Dependencies: 21.1
+### Description: Create a ModelLoader class that handles different loading scenarios and provides fallback mechanisms for compatibility issues.
+### Details:
+Implement the ModelLoader class as outlined in the task description with the following enhancements:
+1. Add detailed error logging for each loading attempt
+2. Implement version-specific loading strategies
+3. Add support for loading models with custom preprocessing layers
+4. Include memory management options for large models
+5. Add progress tracking for large model loading
+6. Implement model validation after loading to ensure functionality
+<info added on 2025-07-25T03:45:11.200Z>
+ModelLoader class has been implemented in model_loader.py. The implementation includes a specialized function called load_keras_with_normalization_fix that successfully resolves normalization layer issues in .keras files. A DummyNormalization class was also created to handle missing variables in the normalization layers.
+</info added on 2025-07-25T03:45:11.200Z>
+
+## 3. Create Normalization Compatibility Layer [pending]
+### Dependencies: 21.1, 21.2
+### Description: Develop a NormalizationAdapter class that handles different normalization approaches and provides consistent preprocessing.
+### Details:
+Implement the NormalizationAdapter class with these additional features:
+1. Support for multiple normalization strategies (mean/std, min/max, etc.)
+2. Auto-detection of normalization parameters from model metadata
+3. Conversion between different normalization formats
+4. Optimization for performance with TensorFlow operations
+5. Support for both image and non-image data normalization
+6. Serialization of normalization parameters for consistent inference
+
+## 4. Implement Model Version Compatibility Checks [pending]
+### Dependencies: 21.1
+### Description: Create a system to check and report TensorFlow version compatibility issues between saved models and runtime environment.
+### Details:
+Expand the check_tf_compatibility function to:
+1. Extract detailed version information from saved models
+2. Compare semantic versioning components (major, minor, patch)
+3. Maintain a compatibility matrix of known working/problematic version combinations
+4. Provide specific guidance for resolving version conflicts
+5. Check for required TensorFlow extensions or plugins
+6. Verify hardware compatibility (GPU/TPU support)
+
+## 5. Create Unified Model Interface [pending]
+### Dependencies: 21.2, 21.3, 21.4
+### Description: Develop an AIModelInterface class that encapsulates all compatibility handling and provides a consistent API for model usage.
+### Details:
+Implement the AIModelInterface class with these improvements:
+1. Add support for model quantization options
+2. Implement batched prediction for improved throughput
+3. Add caching of preprocessed inputs for repeated predictions
+4. Include performance profiling of inference steps
+5. Add support for model reloading/updating without service restart
+6. Implement graceful degradation for partial model failures
+
+## 6. Update API Service with New Model Interface [pending]
+### Dependencies: 21.5
+### Description: Integrate the new model interface into the API service and implement proper error handling and response formatting.
+### Details:
+Enhance the API service implementation with:
+1. Proper initialization of models during service startup
+2. Graceful handling of model loading failures
+3. Request validation for model input requirements
+4. Detailed error messages for client debugging
+5. Performance metrics for model inference time
+6. Response caching for identical requests
+7. Health check endpoint for model status
+
+Ensure the API follows the standard response format from Task 2.
+

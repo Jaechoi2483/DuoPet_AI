@@ -1,0 +1,101 @@
+# Task ID: 12
+# Title: Implement Image-based Health Diagnosis Service
+# Status: pending
+# Dependencies: 1, 2, 5
+# Priority: high
+# Description: Develop the service for diagnosing pet health issues from images using YOLOv12 and EfficientNet.
+# Details:
+Create a service that uses YOLOv12 for detecting disease-affected areas in pet images and EfficientNet for classifying the type of disease. Focus on skin diseases, eye conditions, and other visible health issues. Include confidence scores with diagnoses.
+
+```python
+import torch
+import numpy as np
+import cv2
+from typing import Dict, List, Tuple
+
+class HealthDiagnosisService:
+    def __init__(self, model_registry):
+        self.detection_model = model_registry.load_model(ModelType.DISEASE_DETECTION)
+        self.classification_model = model_registry.load_model(ModelType.DISEASE_CLASSIFICATION)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.disease_classes = [
+            "healthy", "skin_infection", "dermatitis", "ear_infection", 
+            "eye_infection", "conjunctivitis", "wound", "tumor"
+        ]
+    
+    def preprocess_image(self, image_data):
+        # Convert to numpy array, resize, normalize
+        nparr = np.frombuffer(image_data, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (640, 640))
+        img = img / 255.0  # Normalize
+        return img
+    
+    def detect_disease_areas(self, image) -> List[Dict]:
+        # Convert image to tensor and move to device
+        img_tensor = torch.from_numpy(image).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
+        
+        # Run YOLOv12 detection
+        with torch.no_grad():
+            detections = self.detection_model(img_tensor)
+        
+        # Process detections
+        results = []
+        for detection in detections[0]:
+            if detection[4] > 0.5:  # Confidence threshold
+                x1, y1, x2, y2 = detection[0:4].cpu().numpy()
+                confidence = float(detection[4].cpu().numpy())
+                results.append({
+                    "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                    "confidence": confidence
+                })
+        
+        return results
+    
+    def classify_disease(self, image, bbox) -> Tuple[str, float]:
+        # Crop the region of interest
+        x1, y1, x2, y2 = bbox
+        roi = image[y1:y2, x1:x2]
+        roi = cv2.resize(roi, (224, 224))  # EfficientNet input size
+        
+        # Convert to tensor and classify
+        roi_tensor = torch.from_numpy(roi).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
+        
+        with torch.no_grad():
+            outputs = self.classification_model(roi_tensor)
+            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+        
+        # Get predicted class and confidence
+        class_idx = np.argmax(probs)
+        confidence = float(probs[class_idx])
+        disease_name = self.disease_classes[class_idx]
+        
+        return disease_name, confidence
+    
+    async def diagnose(self, image_data) -> Dict:
+        # Preprocess image
+        image = self.preprocess_image(image_data)
+        
+        # Detect disease areas
+        detections = self.detect_disease_areas(image)
+        
+        # Classify each detected area
+        diagnoses = []
+        for detection in detections:
+            disease_name, confidence = self.classify_disease(image, detection["bbox"])
+            diagnoses.append({
+                "disease": disease_name,
+                "confidence": confidence,
+                "location": detection["bbox"]
+            })
+        
+        # If no diseases detected
+        if not diagnoses:
+            return {"healthy": True, "diagnoses": []}
+        
+        return {"healthy": False, "diagnoses": diagnoses}
+```
+
+# Test Strategy:
+Test disease detection with various pet images. Verify classification accuracy with known disease images. Test with different image qualities and lighting conditions. Measure false positive and false negative rates.

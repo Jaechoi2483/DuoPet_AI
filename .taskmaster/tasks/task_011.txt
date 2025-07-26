@@ -1,0 +1,68 @@
+# Task ID: 11
+# Title: Create YouTube Recommendation API Endpoint
+# Status: pending
+# Dependencies: 2, 4, 10
+# Priority: medium
+# Description: Implement the REST API endpoint for YouTube video recommendations.
+# Details:
+Create the POST /api/v1/video-recommend endpoint that accepts user queries or pet profiles and returns recommended YouTube videos. Implement caching to reduce API calls to YouTube. Handle YouTube API quota limitations and errors.
+
+```python
+from fastapi import APIRouter, Depends, Body
+from pydantic import BaseModel
+from typing import List, Optional
+from app.services.youtube_recommendation import YouTubeRecommendationService
+from app.core.auth import get_api_key
+
+class VideoRecommendRequest(BaseModel):
+    query: Optional[str] = None
+    pet_profile: Optional[str] = None
+    max_results: int = 5
+
+class VideoResponse(BaseModel):
+    id: str
+    title: str
+    thumbnail: str
+    channel: str
+    view_count: int
+    score: float
+
+router = APIRouter()
+
+@router.post("/video-recommend", response_model=StandardResponse)
+async def recommend_videos(
+    request: VideoRecommendRequest = Body(...),
+    api_key: str = Depends(get_api_key),
+    recommendation_service: YouTubeRecommendationService = Depends()
+):
+    try:
+        # Use query or pet profile for keyword extraction
+        text = request.query if request.query else request.pet_profile
+        if not text:
+            return {"success": False, "error": "Either query or pet_profile must be provided"}
+        
+        keywords = recommendation_service.extract_keywords(text)
+        videos = recommendation_service.search_videos(keywords, request.max_results)
+        
+        # Format response
+        video_responses = [
+            VideoResponse(
+                id=video['id'],
+                title=video['title'],
+                thumbnail=video['thumbnail'],
+                channel=video['channel'],
+                view_count=video['view_count'],
+                score=video['score']
+            ) for video in videos
+        ]
+        
+        return {
+            "success": True,
+            "data": {"videos": video_responses, "keywords": keywords}
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+# Test Strategy:
+Test endpoint with various queries and verify recommendation quality. Test caching functionality and performance. Verify error handling with YouTube API failures. Test with different max_results values.

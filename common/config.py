@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     LOG_FILE_PATH: str = os.path.join(PROJECT_ROOT_DIR, "logs", "duopet_ai.log")
 
     # --- CORS ---
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:8080"]
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8080"]
     CORS_ALLOW_CREDENTIALS: bool = True
     ALLOWED_HOSTS: List[str] = ["*"]
 

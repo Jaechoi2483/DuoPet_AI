@@ -1,0 +1,134 @@
+# Task ID: 19
+# Title: Implement Docker Containerization
+# Status: pending
+# Dependencies: 1, 3, 5
+# Priority: medium
+# Description: Create Docker configuration for containerizing the AI services.
+# Details:
+Create Dockerfile and docker-compose.yml for containerizing the FastAPI services. Configure environment-specific settings. Optimize container size and performance. Setup proper networking between containers.
+
+```dockerfile
+# Dockerfile
+FROM python:3.9-slim as base
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create non-root user
+RUN useradd -m appuser
+USER appuser
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PORT=8000
+
+# Expose port
+EXPOSE ${PORT}
+
+# Run the application
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${PORT}", "--workers", "4"]
+```
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./models:/app/models
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - YOUTUBE_API_KEY=${YOUTUBE_API_KEY}
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+  redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+volumes:
+  redis_data:
+```
+
+```python
+# app/core/config.py
+from pydantic import BaseSettings
+import os
+
+class Settings(BaseSettings):
+    # Application settings
+    APP_NAME: str = "DuoPet AI System"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
+    DEBUG: bool = ENVIRONMENT == "development"
+    API_PREFIX: str = "/api/v1"
+    
+    # Server settings
+    HOST: str = "0.0.0.0"
+    PORT: int = int(os.getenv("PORT", 8000))
+    WORKERS: int = int(os.getenv("WORKERS", 4))
+    
+    # Redis settings
+    REDIS_HOST: str = os.getenv("REDIS_HOST", "localhost")
+    REDIS_PORT: int = int(os.getenv("REDIS_PORT", 6379))
+    REDIS_PASSWORD: str = os.getenv("REDIS_PASSWORD", "")
+    REDIS_DB: int = int(os.getenv("REDIS_DB", 0))
+    
+    # API keys
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    YOUTUBE_API_KEY: str = os.getenv("YOUTUBE_API_KEY", "")
+    
+    # Model settings
+    MODEL_DIR: str = os.getenv("MODEL_DIR", "./models")
+    MAX_IMAGE_SIZE: int = int(os.getenv("MAX_IMAGE_SIZE", 1024))
+    MAX_VIDEO_FRAMES: int = int(os.getenv("MAX_VIDEO_FRAMES", 300))
+    BATCH_SIZE: int = int(os.getenv("BATCH_SIZE", 16))
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+settings = Settings()
+```
+
+# Test Strategy:
+Test Docker build process. Verify containers start correctly with different environment configurations. Test container networking and communication. Measure container resource usage under load.

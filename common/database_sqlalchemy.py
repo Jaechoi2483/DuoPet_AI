@@ -3,8 +3,7 @@ SQLAlchemy database configuration for Oracle DB
 """
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker, Session, declarative_base
 
 from common.config import get_settings
 from common.logger import get_logger

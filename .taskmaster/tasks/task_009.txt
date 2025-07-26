@@ -1,0 +1,40 @@
+# Task ID: 9
+# Title: Create Chatbot API Endpoint
+# Status: pending
+# Dependencies: 2, 4, 8
+# Priority: high
+# Description: Implement the REST API endpoint for the GPT-based chatbot functionality.
+# Details:
+Create the POST /api/v1/chatbot endpoint that accepts user queries and returns AI-generated responses. Implement user identification for conversation context tracking. Handle rate limiting and token usage monitoring for the OpenAI API.
+
+```python
+from fastapi import APIRouter, Depends, Body
+from pydantic import BaseModel
+from app.services.chatbot import ChatbotService
+from app.core.auth import get_api_key
+
+class ChatbotRequest(BaseModel):
+    user_id: str
+    query: str
+
+router = APIRouter()
+
+@router.post("/chatbot", response_model=StandardResponse)
+async def chatbot_query(
+    request: ChatbotRequest = Body(...),
+    api_key: str = Depends(get_api_key),
+    chatbot_service: ChatbotService = Depends()
+):
+    try:
+        response = await chatbot_service.generate_response(request.user_id, request.query)
+        keywords = chatbot_service.extract_keywords(request.query)
+        return {
+            "success": True,
+            "data": {"response": response, "extracted_keywords": keywords}
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+# Test Strategy:
+Test endpoint with various queries and verify response quality. Test conversation context across multiple requests. Verify error handling with malformed requests. Test rate limiting functionality.

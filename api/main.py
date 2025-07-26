@@ -12,8 +12,12 @@ from contextlib import asynccontextmanager
 from typing import Dict, Any
 
 import tensorflow as tf
-print("🔥 TensorFlow 경로:", tf.__file__)
-print("🧩 TensorFlow 속성 목록:", dir(tf))
+# TensorFlow 로그 레벨 설정 (중복 출력 방지)
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # WARNING 이상만 표시
+
+# TensorFlow Eager/Graph 모드 충돌 해결
+tf.config.run_functions_eagerly(True)
 
 from services.chatbot.predict import RAGChatbot
 
@@ -97,14 +101,18 @@ async def lifespan(app: FastAPI):
         logger.error(f"Failed to initialize one or more database connections: {str(e)}")
 
     # 2. RAG 챗봇을 단 한 번만 초기화하여 앱 상태에 저장합니다.
-    try:
-        logger.info("Initializing RAG Chatbot... (This may take a moment)")
-        # 무거운 초기화 로직을 여기서 실행합니다.
-        chatbot_instance = RAGChatbot(site_url=settings.SITE_URL)
-        app.state.chatbot = chatbot_instance
-        logger.info("RAG Chatbot initialized successfully.")
-    except Exception as e:
-        logger.error(f"Failed to initialize RAG Chatbot: {e}")
+    if os.getenv('SKIP_RAG_CHATBOT', 'false').lower() != 'true':
+        try:
+            logger.info("Initializing RAG Chatbot... (This may take a moment)")
+            # 무거운 초기화 로직을 여기서 실행합니다.
+            chatbot_instance = RAGChatbot(site_url=settings.SITE_URL)
+            app.state.chatbot = chatbot_instance
+            logger.info("RAG Chatbot initialized successfully.")
+        except Exception as e:
+            logger.error(f"Failed to initialize RAG Chatbot: {e}")
+            app.state.chatbot = None
+    else:
+        logger.info("Skipping RAG Chatbot initialization (SKIP_RAG_CHATBOT=true)")
         app.state.chatbot = None
 
     # 3. 백그라운드 작업을 시작합니다.
@@ -398,13 +406,18 @@ async def periodic_model_update():
 if __name__ == "__main__":
     import uvicorn
     import os
+    import sys
 
     print(f"현재 작업 디렉터리: {os.getcwd()}")
+    
+    # --no-reload 옵션 체크
+    use_reload = settings.DEBUG and "--no-reload" not in sys.argv
+    
     uvicorn.run(
         "api.main:app",
         host=settings.API_HOST,
         port=settings.API_PORT,
-        reload=settings.DEBUG,
+        reload=use_reload,
         log_level=settings.LOG_LEVEL.lower(),
         workers=1 if settings.DEBUG else settings.API_WORKERS
     )
