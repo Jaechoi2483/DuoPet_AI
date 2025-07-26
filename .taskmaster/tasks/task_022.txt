@@ -1,0 +1,721 @@
+# Task ID: 22
+# Title: Fix Skin Disease Classification Model Loading Issue
+# Status: pending
+# Dependencies: 21, 17, 3, 5
+# Priority: medium
+# Description: Resolve the issue with loading a skin disease classification model where the checkpoint file exists but the model architecture is unknown.
+# Details:
+This task involves implementing a robust solution to load and use a skin disease classification model when only the checkpoint file is available without knowledge of the original model architecture:
+
+1. Analyze the checkpoint file format and metadata:
+   - Determine if it's a TensorFlow SavedModel, h5 format, or weights-only checkpoint
+   - Extract available metadata about layers, input shapes, and output dimensions
+   - Use TensorFlow model inspection tools to gather information about the saved weights
+
+2. Implement a model architecture discovery approach:
+```python
+import tensorflow as tf
+import os
+import json
+import numpy as np
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
+
+class ModelArchitectureDiscovery:
+    def __init__(self, checkpoint_path):
+        self.checkpoint_path = checkpoint_path
+        
+    def inspect_checkpoint(self):
+        """Extract information from checkpoint without loading the full model"""
+        try:
+            # For SavedModel format
+            if os.path.isdir(self.checkpoint_path):
+                return self._inspect_saved_model()
+            # For HDF5 format
+            elif self.checkpoint_path.endswith('.h5'):
+                return self._inspect_h5_model()
+            # For weights-only format
+            else:
+                return self._inspect_weights_only()
+        except Exception as e:
+            print(f"Error inspecting checkpoint: {str(e)}")
+            return None
+    
+    def _inspect_saved_model(self):
+        """Inspect a SavedModel format checkpoint"""
+        # Load model metadata
+        meta_graph = tf.saved_model.load(self.checkpoint_path)
+        # Extract signature information
+        signatures = list(meta_graph.signatures.keys())
+        # Get input and output specs
+        signature_def = meta_graph.signatures[signatures[0]]
+        input_specs = {k: v.shape for k, v in signature_def.inputs.items()}
+        output_specs = {k: v.shape for k, v in signature_def.outputs.items()}
+        return {
+            "format": "SavedModel",
+            "signatures": signatures,
+            "input_specs": input_specs,
+            "output_specs": output_specs
+        }
+    
+    def _inspect_h5_model(self):
+        """Inspect an H5 format checkpoint"""
+        # Use h5py to inspect without loading the model
+        import h5py
+        with h5py.File(self.checkpoint_path, 'r') as f:
+            # Check if it contains model_config
+            if 'model_config' in f.attrs:
+                model_config = json.loads(f.attrs['model_config'].decode('utf-8'))
+                return {
+                    "format": "H5",
+                    "has_architecture": True,
+                    "model_config": model_config
+                }
+            else:
+                # Extract layer names and shapes
+                layers = []
+                def visit_group(name, obj):
+                    if isinstance(obj, h5py.Dataset):
+                        layers.append({"name": name, "shape": obj.shape})
+                f.visititems(visit_group)
+                return {
+                    "format": "H5",
+                    "has_architecture": False,
+                    "layers": layers
+                }
+    
+    def _inspect_weights_only(self):
+        """Inspect a weights-only checkpoint"""
+        # List available weights
+        reader = tf.train.load_checkpoint(self.checkpoint_path)
+        var_to_shape_map = reader.get_variable_to_shape_map()
+        return {
+            "format": "weights-only",
+            "variables": var_to_shape_map
+        }
+```
+
+3. Implement a model reconstruction strategy:
+```python
+class SkinDiseaseModelReconstructor:
+    def __init__(self, checkpoint_path):
+        self.checkpoint_path = checkpoint_path
+        self.discovery = ModelArchitectureDiscovery(checkpoint_path)
+        self.checkpoint_info = self.discovery.inspect_checkpoint()
+        
+    def reconstruct_model(self):
+        """Attempt to reconstruct the model based on checkpoint information"""
+        if self.checkpoint_info is None:
+            raise ValueError("Failed to extract checkpoint information")
+            
+        if self.checkpoint_info["format"] == "SavedModel":
+            return self._load_saved_model()
+        elif self.checkpoint_info["format"] == "H5" and self.checkpoint_info["has_architecture"]:
+            return self._load_h5_with_architecture()
+        else:
+            return self._reconstruct_from_weights()
+    
+    def _load_saved_model(self):
+        """Load a SavedModel format checkpoint"""
+        try:
+            model = tf.saved_model.load(self.checkpoint_path)
+            # Create a concrete function wrapper for easier use
+            infer = model.signatures[list(model.signatures.keys())[0]]
+            return model, infer
+        except Exception as e:
+            print(f"Error loading SavedModel: {str(e)}")
+            return self._reconstruct_from_weights()
+    
+    def _load_h5_with_architecture(self):
+        """Load an H5 model with embedded architecture"""
+        try:
+            model = tf.keras.models.load_model(self.checkpoint_path, compile=False)
+            return model, model
+        except Exception as e:
+            print(f"Error loading H5 model: {str(e)}")
+            return self._reconstruct_from_weights()
+    
+    def _reconstruct_from_weights(self):
+        """Reconstruct model from weights by inferring architecture"""
+        # Common skin disease classification architectures to try
+        architectures = [
+            self._create_mobilenet_v2,
+            self._create_efficientnet,
+            self._create_resnet50,
+            self._create_custom_cnn
+        ]
+        
+        # Try each architecture
+        for architecture_fn in architectures:
+            try:
+                model = architecture_fn()
+                # Try to load weights
+                if self.checkpoint_info["format"] == "H5":
+                    model.load_weights(self.checkpoint_path)
+                else:
+                    # For weights-only format
+                    checkpoint = tf.train.Checkpoint(model=model)
+                    status = checkpoint.restore(self.checkpoint_path)
+                    status.expect_partial()
+                
+                # Validate model (basic check)
+                self._validate_model(model)
+                return model, model
+            except Exception as e:
+                print(f"Failed with architecture {architecture_fn.__name__}: {str(e)}")
+                continue
+                
+        raise ValueError("Could not reconstruct model with any known architecture")
+    
+    def _validate_model(self, model):
+        """Perform basic validation on the model"""
+        # Create a random input tensor
+        if hasattr(model, 'input_shape'):
+            input_shape = model.input_shape[1:]
+            dummy_input = tf.random.normal([1] + list(input_shape))
+            # Try inference
+            _ = model(dummy_input)
+            return True
+        return False
+    
+    def _create_mobilenet_v2(self):
+        """Create MobileNetV2 architecture commonly used for skin disease classification"""
+        base_model = tf.keras.applications.MobileNetV2(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights=None
+        )
+        x = base_model.output
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        x = tf.keras.layers.Dense(1024, activation='relu')(x)
+        # Most skin disease datasets have between 7-10 classes
+        predictions = tf.keras.layers.Dense(7, activation='softmax')(x)
+        model = tf.keras.Model(inputs=base_model.input, outputs=predictions)
+        return model
+    
+    def _create_efficientnet(self):
+        """Create EfficientNet architecture"""
+        base_model = tf.keras.applications.EfficientNetB0(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights=None
+        )
+        x = base_model.output
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        x = tf.keras.layers.Dense(512, activation='relu')(x)
+        predictions = tf.keras.layers.Dense(7, activation='softmax')(x)
+        model = tf.keras.Model(inputs=base_model.input, outputs=predictions)
+        return model
+    
+    def _create_resnet50(self):
+        """Create ResNet50 architecture"""
+        base_model = tf.keras.applications.ResNet50(
+            input_shape=(224, 224, 3),
+            include_top=False,
+            weights=None
+        )
+        x = base_model.output
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        x = tf.keras.layers.Dense(512, activation='relu')(x)
+        predictions = tf.keras.layers.Dense(7, activation='softmax')(x)
+        model = tf.keras.Model(inputs=base_model.input, outputs=predictions)
+        return model
+    
+    def _create_custom_cnn(self):
+        """Create a custom CNN that might match the checkpoint"""
+        inputs = tf.keras.Input(shape=(224, 224, 3))
+        x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu')(inputs)
+        x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+        x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu')(x)
+        x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+        x = tf.keras.layers.Conv2D(128, (3, 3), activation='relu')(x)
+        x = tf.keras.layers.MaxPooling2D((2, 2))(x)
+        x = tf.keras.layers.Flatten()(x)
+        x = tf.keras.layers.Dense(512, activation='relu')(x)
+        outputs = tf.keras.layers.Dense(7, activation='softmax')(x)
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        return model
+```
+
+4. Implement a wrapper class for the skin disease classification model:
+```python
+class SkinDiseaseClassifier:
+    def __init__(self, checkpoint_path):
+        self.checkpoint_path = checkpoint_path
+        self.reconstructor = SkinDiseaseModelReconstructor(checkpoint_path)
+        self.model, self.inference_function = self.reconstructor.reconstruct_model()
+        self.class_names = self._infer_class_names()
+        
+    def _infer_class_names(self):
+        """Infer class names from model output or use default names"""
+        # Try to find class names in the SavedModel assets
+        if os.path.exists(os.path.join(self.checkpoint_path, 'assets')):
+            class_file = os.path.join(self.checkpoint_path, 'assets', 'class_names.txt')
+            if os.path.exists(class_file):
+                with open(class_file, 'r') as f:
+                    return [line.strip() for line in f.readlines()]
+        
+        # Default class names for common skin diseases
+        return [
+            "Acne", "Eczema", "Melanoma", "Psoriasis", 
+            "Basal Cell Carcinoma", "Rosacea", "Healthy"
+        ]
+    
+    def preprocess_image(self, image_path):
+        """Preprocess an image for model input"""
+        # Load and resize image
+        img = tf.keras.preprocessing.image.load_img(
+            image_path, target_size=(224, 224)
+        )
+        img_array = tf.keras.preprocessing.image.img_to_array(img)
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        # Apply normalization (try different normalization approaches)
+        try:
+            # Standard ImageNet normalization
+            img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
+        except:
+            # Fallback to simple scaling
+            img_array = img_array / 255.0
+            
+        return img_array
+    
+    def predict(self, image_path):
+        """Predict skin disease from image"""
+        img_array = self.preprocess_image(image_path)
+        
+        # Try different prediction approaches
+        try:
+            if hasattr(self.inference_function, '__call__') and not isinstance(self.inference_function, tf.keras.Model):
+                # For SavedModel signature
+                predictions = self.inference_function(tf.constant(img_array))
+                if isinstance(predictions, dict):
+                    # Extract the output tensor
+                    prediction_tensor = list(predictions.values())[0]
+                else:
+                    prediction_tensor = predictions
+            else:
+                # For Keras model
+                prediction_tensor = self.model.predict(img_array)
+                
+            # Get class index and probability
+            class_idx = tf.argmax(prediction_tensor, axis=1)[0].numpy()
+            probability = tf.nn.softmax(prediction_tensor)[0, class_idx].numpy()
+            
+            return {
+                "class_name": self.class_names[class_idx],
+                "class_index": int(class_idx),
+                "probability": float(probability),
+                "all_probabilities": {
+                    self.class_names[i]: float(p) 
+                    for i, p in enumerate(tf.nn.softmax(prediction_tensor)[0].numpy())
+                }
+            }
+        except Exception as e:
+            print(f"Prediction error: {str(e)}")
+            return {"error": str(e)}
+```
+
+5. Create a utility script to test and validate the model loading:
+```python
+def test_model_loading(checkpoint_path):
+    """Test loading the model from checkpoint"""
+    print(f"Testing model loading from: {checkpoint_path}")
+    try:
+        # Try to load the model
+        classifier = SkinDiseaseClassifier(checkpoint_path)
+        print("Model loaded successfully!")
+        print(f"Model type: {type(classifier.model)}")
+        print(f"Class names: {classifier.class_names}")
+        
+        # Print model summary if available
+        if hasattr(classifier.model, 'summary'):
+            classifier.model.summary()
+            
+        return classifier
+    except Exception as e:
+        print(f"Failed to load model: {str(e)}")
+        return None
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description='Test skin disease model loading')
+    parser.add_argument('--checkpoint', required=True, help='Path to model checkpoint')
+    parser.add_argument('--test_image', help='Path to test image for prediction')
+    args = parser.parse_args()
+    
+    classifier = test_model_loading(args.checkpoint)
+    
+    if classifier and args.test_image:
+        print(f"\nTesting prediction with image: {args.test_image}")
+        result = classifier.predict(args.test_image)
+        print(f"Prediction result: {json.dumps(result, indent=2)}")
+```
+
+6. Integration with the existing API:
+```python
+from fastapi import FastAPI, File, UploadFile, HTTPException
+import tempfile
+import os
+import shutil
+
+app = FastAPI()
+
+# Initialize the classifier at startup
+classifier = None
+
+@app.on_event("startup")
+async def startup_event():
+    global classifier
+    checkpoint_path = os.environ.get("MODEL_CHECKPOINT_PATH", "./model_checkpoint")
+    try:
+        classifier = SkinDiseaseClassifier(checkpoint_path)
+        print("Skin disease classifier loaded successfully")
+    except Exception as e:
+        print(f"Error loading skin disease classifier: {str(e)}")
+        # Continue without the classifier, will return error on API calls
+
+@app.post("/classify-skin-disease/")
+async def classify_skin_disease(file: UploadFile = File(...)):
+    global classifier
+    
+    if classifier is None:
+        raise HTTPException(status_code=500, detail="Skin disease classifier not loaded")
+    
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False) as temp:
+        shutil.copyfileobj(file.file, temp)
+        temp_path = temp.name
+    
+    try:
+        # Process the image and get prediction
+        result = classifier.predict(temp_path)
+        
+        # Clean up
+        os.unlink(temp_path)
+        
+        return result
+    except Exception as e:
+        # Clean up on error
+        os.unlink(temp_path)
+        raise HTTPException(status_code=500, detail=f"Prediction error: {str(e)}")
+```
+
+7. Implement a model versioning and fallback system:
+```python
+class ModelRegistry:
+    def __init__(self, base_path="./models"):
+        self.base_path = base_path
+        self.models = {}
+        self.default_model = None
+        
+    def register_model(self, model_id, checkpoint_path, make_default=False):
+        """Register a model in the registry"""
+        try:
+            classifier = SkinDiseaseClassifier(checkpoint_path)
+            self.models[model_id] = classifier
+            if make_default or self.default_model is None:
+                self.default_model = model_id
+            return True
+        except Exception as e:
+            print(f"Failed to register model {model_id}: {str(e)}")
+            return False
+    
+    def get_model(self, model_id=None):
+        """Get a model by ID or the default model"""
+        if model_id is not None and model_id in self.models:
+            return self.models[model_id]
+        elif self.default_model is not None:
+            return self.models[self.default_model]
+        else:
+            raise ValueError("No models available in the registry")
+    
+    def scan_models_directory(self):
+        """Scan the models directory for checkpoints"""
+        if not os.path.exists(self.base_path):
+            os.makedirs(self.base_path)
+            return
+            
+        for model_dir in os.listdir(self.base_path):
+            model_path = os.path.join(self.base_path, model_dir)
+            if os.path.isdir(model_path):
+                # Check if it contains a SavedModel
+                if os.path.exists(os.path.join(model_path, 'saved_model.pb')):
+                    self.register_model(model_dir, model_path)
+                # Check if it contains an H5 file
+                else:
+                    for file in os.listdir(model_path):
+                        if file.endswith('.h5'):
+                            self.register_model(model_dir, os.path.join(model_path, file))
+                            break
+```
+
+8. Implement a model conversion utility to standardize the model format:
+```python
+def convert_model_to_saved_model(model, output_dir):
+    """Convert a model to SavedModel format"""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    # Save the model
+    tf.saved_model.save(model, output_dir)
+    
+    # Save class names if available
+    if hasattr(model, 'class_names') and model.class_names is not None:
+        assets_dir = os.path.join(output_dir, 'assets')
+        if not os.path.exists(assets_dir):
+            os.makedirs(assets_dir)
+        with open(os.path.join(assets_dir, 'class_names.txt'), 'w') as f:
+            for class_name in model.class_names:
+                f.write(f"{class_name}\n")
+                
+    return output_dir
+```
+
+9. Document the solution and provide usage examples for future reference:
+```python
+"""
+Skin Disease Classification Model Loader
+
+This module provides utilities for loading and using skin disease classification models
+when only the checkpoint file is available without knowledge of the original architecture.
+
+Usage:
+    # Basic usage
+    classifier = SkinDiseaseClassifier('/path/to/checkpoint')
+    result = classifier.predict('/path/to/image.jpg')
+    
+    # Using the model registry
+    registry = ModelRegistry('./models')
+    registry.scan_models_directory()
+    classifier = registry.get_model()
+    result = classifier.predict('/path/to/image.jpg')
+"""
+```
+
+# Test Strategy:
+To verify the skin disease classification model loading solution:
+
+1. Test checkpoint inspection functionality:
+   - Create a test script that runs the ModelArchitectureDiscovery on different types of checkpoints:
+     ```python
+     def test_checkpoint_inspection():
+         # Test with SavedModel format
+         discovery = ModelArchitectureDiscovery('./test_checkpoints/saved_model')
+         saved_model_info = discovery.inspect_checkpoint()
+         assert saved_model_info is not None
+         assert saved_model_info['format'] == 'SavedModel'
+         
+         # Test with H5 format
+         discovery = ModelArchitectureDiscovery('./test_checkpoints/model.h5')
+         h5_model_info = discovery.inspect_checkpoint()
+         assert h5_model_info is not None
+         assert h5_model_info['format'] == 'H5'
+         
+         # Test with weights-only format
+         discovery = ModelArchitectureDiscovery('./test_checkpoints/weights')
+         weights_info = discovery.inspect_checkpoint()
+         assert weights_info is not None
+         assert weights_info['format'] == 'weights-only'
+     ```
+
+2. Test model reconstruction with different architectures:
+   - Create test cases for each supported architecture:
+     ```python
+     def test_model_reconstruction():
+         reconstructor = SkinDiseaseModelReconstructor('./test_checkpoints/saved_model')
+         model, inference_fn = reconstructor.reconstruct_model()
+         assert model is not None
+         
+         # Test with H5 format
+         reconstructor = SkinDiseaseModelReconstructor('./test_checkpoints/model.h5')
+         model, inference_fn = reconstructor.reconstruct_model()
+         assert model is not None
+         
+         # Test with weights-only format
+         reconstructor = SkinDiseaseModelReconstructor('./test_checkpoints/weights')
+         model, inference_fn = reconstructor.reconstruct_model()
+         assert model is not None
+     ```
+
+3. Test the SkinDiseaseClassifier with real images:
+   - Create a test script that loads the model and performs predictions:
+     ```python
+     def test_skin_disease_classifier():
+         # Test with different checkpoint formats
+         for checkpoint_path in ['./test_checkpoints/saved_model', 
+                               './test_checkpoints/model.h5',
+                               './test_checkpoints/weights']:
+             try:
+                 classifier = SkinDiseaseClassifier(checkpoint_path)
+                 
+                 # Test with sample images from each class
+                 test_images = [
+                     './test_images/acne.jpg',
+                     './test_images/eczema.jpg',
+                     './test_images/melanoma.jpg'
+                 ]
+                 
+                 for img_path in test_images:
+                     result = classifier.predict(img_path)
+                     assert 'class_name' in result
+                     assert 'probability' in result
+                     assert result['probability'] > 0
+                     print(f"Image {img_path}: {result['class_name']} ({result['probability']:.2f})")
+             except Exception as e:
+                 print(f"Error with checkpoint {checkpoint_path}: {str(e)}")
+     ```
+
+4. Test the model registry functionality:
+   - Create a test script for the ModelRegistry:
+     ```python
+     def test_model_registry():
+         # Setup test directory with multiple models
+         registry = ModelRegistry('./test_models')
+         
+         # Test registration
+         assert registry.register_model('model1', './test_checkpoints/saved_model', True)
+         assert registry.register_model('model2', './test_checkpoints/model.h5')
+         
+         # Test model retrieval
+         default_model = registry.get_model()
+         assert default_model is not None
+         
+         specific_model = registry.get_model('model2')
+         assert specific_model is not None
+         
+         # Test directory scanning
+         registry = ModelRegistry('./test_models')
+         registry.scan_models_directory()
+         assert len(registry.models) > 0
+     ```
+
+5. Test the API integration:
+   - Create a test script that sends requests to the API:
+     ```python
+     def test_api_integration():
+         from fastapi.testclient import TestClient
+         from main import app
+         
+         client = TestClient(app)
+         
+         # Test with valid image
+         with open('./test_images/acne.jpg', 'rb') as f:
+             response = client.post('/classify-skin-disease/', files={'file': f})
+             assert response.status_code == 200
+             result = response.json()
+             assert 'class_name' in result
+             assert 'probability' in result
+         
+         # Test with invalid image
+         with open('./test_images/not_an_image.txt', 'rb') as f:
+             response = client.post('/classify-skin-disease/', files={'file': f})
+             assert response.status_code == 500
+     ```
+
+6. Test model conversion utility:
+   - Create a test script for the model conversion:
+     ```python
+     def test_model_conversion():
+         # Load a model
+         classifier = SkinDiseaseClassifier('./test_checkpoints/model.h5')
+         
+         # Convert to SavedModel
+         output_dir = './test_output/converted_model'
+         converted_path = convert_model_to_saved_model(classifier.model, output_dir)
+         
+         # Verify the converted model works
+         new_classifier = SkinDiseaseClassifier(converted_path)
+         test_image = './test_images/acne.jpg'
+         
+         # Compare predictions
+         original_result = classifier.predict(test_image)
+         converted_result = new_classifier.predict(test_image)
+         
+         assert original_result['class_name'] == converted_result['class_name']
+         assert abs(original_result['probability'] - converted_result['probability']) < 0.01
+     ```
+
+7. Test with corrupted or incomplete checkpoints:
+   - Create test cases with intentionally corrupted files:
+     ```python
+     def test_robustness():
+         # Test with incomplete SavedModel
+         try:
+             classifier = SkinDiseaseClassifier('./test_checkpoints/incomplete_saved_model')
+             assert False, "Should have failed with incomplete SavedModel"
+         except Exception:
+             pass
+         
+         # Test with corrupted H5 file
+         try:
+             classifier = SkinDiseaseClassifier('./test_checkpoints/corrupted.h5')
+             assert False, "Should have failed with corrupted H5"
+         except Exception:
+             pass
+         
+         # Test fallback mechanisms
+         # Create a corrupted SavedModel that should fall back to weights-only loading
+         classifier = SkinDiseaseClassifier('./test_checkpoints/fallback_test')
+         assert classifier is not None, "Fallback mechanism failed"
+     ```
+
+8. Performance testing:
+   - Measure loading time and prediction time:
+     ```python
+     def test_performance():
+         import time
+         
+         # Measure loading time
+         start_time = time.time()
+         classifier = SkinDiseaseClassifier('./test_checkpoints/saved_model')
+         load_time = time.time() - start_time
+         print(f"Model loading time: {load_time:.2f} seconds")
+         
+         # Measure prediction time
+         test_image = './test_images/acne.jpg'
+         start_time = time.time()
+         for _ in range(10):
+             _ = classifier.predict(test_image)
+         avg_prediction_time = (time.time() - start_time) / 10
+         print(f"Average prediction time: {avg_prediction_time:.4f} seconds")
+         
+         # Assert performance is within acceptable limits
+         assert load_time < 10, "Model loading is too slow"
+         assert avg_prediction_time < 1, "Prediction is too slow"
+     ```
+
+9. Integration test with the existing system:
+   - Create an end-to-end test that verifies the model works with the existing pipeline:
+     ```python
+     def test_system_integration():
+         # Import the existing pipeline components
+         from existing_system import preprocess_pipeline, postprocess_results
+         
+         # Load the model
+         classifier = SkinDiseaseClassifier('./production_checkpoint')
+         
+         # Test with the existing pipeline
+         test_image = './test_images/melanoma.jpg'
+         
+         # Preprocess using existing pipeline
+         preprocessed = preprocess_pipeline(test_image)
+         
+         # Use our model for prediction
+         result = classifier.predict(preprocessed)
+         
+         # Postprocess using existing pipeline
+         final_result = postprocess_results(result)
+         
+         # Verify the result contains expected fields
+         assert 'diagnosis' in final_result
+         assert 'confidence' in final_result
+         assert 'recommendations' in final_result
+     ```
+
+# Subtasks:
+## 1. CORS 에러 재발생 문제 해결 [pending]
+### Dependencies: None
+### Description: API 호출 시 CORS 에러가 계속 발생하는 문제 해결
+### Details:
+
+

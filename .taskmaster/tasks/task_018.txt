@@ -1,0 +1,187 @@
+# Task ID: 18
+# Title: Implement Performance Optimization and Caching
+# Status: pending
+# Dependencies: 1, 3, 5
+# Priority: medium
+# Description: Develop performance optimization strategies and caching mechanisms for the API services.
+# Details:
+Implement caching for frequently used data and API responses. Optimize model loading and inference. Implement request batching for improved throughput. Use asynchronous processing where appropriate.
+
+```python
+from fastapi import FastAPI, Depends, Request, Response
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
+from fastapi_cache.decorator import cache
+import redis
+import time
+from functools import lru_cache
+import asyncio
+from typing import List, Dict, Any, Optional
+
+# Redis cache setup
+def setup_cache(app: FastAPI, config):
+    redis_client = redis.Redis(
+        host=config.REDIS_HOST,
+        port=config.REDIS_PORT,
+        password=config.REDIS_PASSWORD,
+        db=config.REDIS_DB
+    )
+    FastAPICache.init(RedisBackend(redis_client), prefix="duopet-ai-cache:")
+
+# Model caching
+class ModelCache:
+    def __init__(self, max_size: int = 5):
+        self.models = {}
+        self.max_size = max_size
+        self.usage_count = {}
+        self.lock = asyncio.Lock()
+    
+    async def get_model(self, model_name: str, version: str, loader_func):
+        key = f"{model_name}:{version}"
+        
+        async with self.lock:
+            # If model is already loaded, update usage count and return
+            if key in self.models:
+                self.usage_count[key] += 1
+                return self.models[key]
+            
+            # If cache is full, remove least used model
+            if len(self.models) >= self.max_size:
+                least_used = min(self.usage_count.items(), key=lambda x: x[1])[0]
+                del self.models[least_used]
+                del self.usage_count[least_used]
+            
+            # Load model
+            model = await loader_func()
+            self.models[key] = model
+            self.usage_count[key] = 1
+            
+            return model
+
+# Request batching
+class RequestBatcher:
+    def __init__(self, batch_size: int = 16, max_wait_time: float = 0.1):
+        self.batch_size = batch_size
+        self.max_wait_time = max_wait_time
+        self.pending_requests = []
+        self.lock = asyncio.Lock()
+        self.processing = False
+    
+    async def add_request(self, data: Any) -> Any:
+        async with self.lock:
+            # Create future for this request
+            future = asyncio.Future()
+            self.pending_requests.append((data, future))
+            
+            # Start processing if not already running
+            if not self.processing:
+                self.processing = True
+                asyncio.create_task(self._process_batch())
+        
+        # Wait for result
+        return await future
+    
+    async def _process_batch(self):
+        while True:
+            # Wait for batch to fill or timeout
+            start_time = time.time()
+            while (len(self.pending_requests) < self.batch_size and 
+                   time.time() - start_time < self.max_wait_time and
+                   len(self.pending_requests) > 0):
+                await asyncio.sleep(0.01)
+            
+            # Get current batch
+            async with self.lock:
+                if not self.pending_requests:
+                    self.processing = False
+                    return
+                
+                current_batch = self.pending_requests[:self.batch_size]
+                self.pending_requests = self.pending_requests[self.batch_size:]
+            
+            # Process batch
+            try:
+                batch_data = [item[0] for item in current_batch]
+                results = await self._process_items(batch_data)
+                
+                # Set results to futures
+                for (_, future), result in zip(current_batch, results):
+                    future.set_result(result)
+            except Exception as e:
+                # Set exception to all futures in batch
+                for _, future in current_batch:
+                    future.set_exception(e)
+    
+    async def _process_items(self, items: List[Any]) -> List[Any]:
+        # Override this method in subclasses
+        raise NotImplementedError()
+
+# Example usage for model inference batching
+class InferenceBatcher(RequestBatcher):
+    def __init__(self, model, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.model = model
+    
+    async def _process_items(self, items: List[Any]) -> List[Any]:
+        # Convert items to batch tensor
+        batch_tensor = torch.stack(items)
+        
+        # Run inference
+        with torch.no_grad():
+            results = self.model(batch_tensor)
+        
+        # Convert results to list
+        return results.cpu().numpy().tolist()
+
+# Response caching middleware
+@lru_cache(maxsize=128)
+def get_cache_key(request: Request):
+    return f"{request.method}:{request.url.path}:{hash(request.query_params)}:{hash(request.path_params)}"
+
+async def cache_middleware(request: Request, call_next):
+    # Skip caching for non-GET requests
+    if request.method != "GET":
+        return await call_next(request)
+    
+    # Get cache key
+    cache_key = get_cache_key(request)
+    
+    # Check if response is cached
+    cached_response = await FastAPICache.get(cache_key)
+    if cached_response:
+        return Response(
+            content=cached_response["content"],
+            status_code=cached_response["status_code"],
+            headers=cached_response["headers"],
+            media_type=cached_response["media_type"]
+        )
+    
+    # Get response
+    response = await call_next(request)
+    
+    # Cache response
+    response_body = b""
+    async for chunk in response.body_iterator:
+        response_body += chunk
+    
+    await FastAPICache.set(
+        cache_key,
+        {
+            "content": response_body,
+            "status_code": response.status_code,
+            "headers": dict(response.headers),
+            "media_type": response.media_type
+        },
+        expire=60 * 5  # 5 minutes
+    )
+    
+    return Response(
+        content=response_body,
+        status_code=response.status_code,
+        headers=response.headers,
+        media_type=response.media_type
+    )
+```
+
+# Test Strategy:
+Test caching with repeated API calls. Measure performance improvements with and without optimizations. Test model caching with different models. Verify request batching improves throughput under load.

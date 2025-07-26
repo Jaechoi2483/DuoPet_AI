@@ -1,0 +1,38 @@
+# Task ID: 3
+# Title: Setup Logging and Monitoring System
+# Status: done
+# Dependencies: 1
+# Priority: high
+# Description: Implement a structured logging system and performance monitoring for the API services.
+# Details:
+Use Python's logging module with a structured JSON formatter. Implement middleware to log request/response details and performance metrics. Setup monitoring for API usage, response times, and error rates. Configure log rotation and different log levels based on environment.
+
+```python
+import logging
+import json
+from fastapi import Request, Response
+import time
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            'timestamp': self.formatTime(record),
+            'level': record.levelname,
+            'message': record.getMessage(),
+            'module': record.module
+        }
+        if hasattr(record, 'request_id'):
+            log_record['request_id'] = record.request_id
+        return json.dumps(log_record)
+
+async def logging_middleware(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers['X-Process-Time'] = str(process_time)
+    logging.info(f"Processed request in {process_time:.4f} seconds")
+    return response
+```
+
+# Test Strategy:
+Verify logs are correctly formatted and contain all required fields. Test that performance metrics are accurately recorded. Ensure log levels work correctly in different environments.

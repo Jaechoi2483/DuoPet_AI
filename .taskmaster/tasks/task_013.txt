@@ -1,0 +1,43 @@
+# Task ID: 13
+# Title: Create Health Diagnosis API Endpoint
+# Status: pending
+# Dependencies: 2, 4, 12
+# Priority: high
+# Description: Implement the REST API endpoint for image-based pet health diagnosis.
+# Details:
+Create the POST /api/v1/health-diagnose endpoint that accepts pet images and returns health diagnosis results. Handle image upload in various formats. Implement proper validation and error handling for image processing.
+
+```python
+from fastapi import APIRouter, Depends, File, UploadFile
+from app.services.health_diagnosis import HealthDiagnosisService
+from app.core.auth import get_api_key
+
+router = APIRouter()
+
+@router.post("/health-diagnose", response_model=StandardResponse)
+async def diagnose_health(
+    file: UploadFile = File(...),
+    api_key: str = Depends(get_api_key),
+    diagnosis_service: HealthDiagnosisService = Depends()
+):
+    try:
+        # Validate image format
+        if file.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
+            return {"success": False, "error": "Unsupported image format. Please upload JPEG or PNG."}
+        
+        # Read image data
+        image_data = await file.read()
+        
+        # Process diagnosis
+        diagnosis_result = await diagnosis_service.diagnose(image_data)
+        
+        return {
+            "success": True,
+            "data": diagnosis_result
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+# Test Strategy:
+Test endpoint with various image formats and sizes. Verify diagnosis results with test images of known conditions. Test error handling with invalid images. Measure response time under different loads.

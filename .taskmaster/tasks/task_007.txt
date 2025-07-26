@@ -1,0 +1,36 @@
+# Task ID: 7
+# Title: Create Face Login API Endpoint
+# Status: pending
+# Dependencies: 2, 4, 6
+# Priority: high
+# Description: Implement the REST API endpoint for face login functionality.
+# Details:
+Create the POST /api/v1/face-login endpoint that accepts face image data and returns authentication results. Handle image upload in various formats (base64, multipart). Implement proper validation and error handling. Ensure secure processing of biometric data.
+
+```python
+from fastapi import APIRouter, Depends, File, UploadFile, Form
+from app.services.face_recognition import FaceRecognitionService
+from app.core.auth import get_api_key
+
+router = APIRouter()
+
+@router.post("/face-login", response_model=StandardResponse)
+async def face_login(
+    file: UploadFile = File(...),
+    user_id: str = Form(...),
+    api_key: str = Depends(get_api_key),
+    face_service: FaceRecognitionService = Depends()
+):
+    try:
+        image_data = await file.read()
+        verification_result = await face_service.verify_user(image_data, user_id)
+        return {
+            "success": True,
+            "data": {"authenticated": verification_result, "confidence": verification_result.confidence}
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+# Test Strategy:
+Test endpoint with valid and invalid image formats. Verify authentication works correctly with known faces. Test error handling with malformed requests. Measure response time under different loads.

@@ -1,0 +1,161 @@
+# Task ID: 14
+# Title: Implement Video-based Behavior Analysis Service
+# Status: pending
+# Dependencies: 1, 2, 5
+# Priority: high
+# Description: Develop the service for analyzing pet behavior from video using YOLOv12, MediaPipe, and LSTM.
+# Details:
+Create a service that uses YOLOv12 for pet detection in video frames, MediaPipe for pose estimation, and LSTM for analyzing behavior patterns over time. Implement detection of abnormal behaviors that might indicate health issues.
+
+```python
+import torch
+import numpy as np
+import cv2
+import mediapipe as mp
+from typing import Dict, List, Any
+
+class BehaviorAnalysisService:
+    def __init__(self, model_registry):
+        self.detection_model = model_registry.load_model(ModelType.PET_DETECTION)
+        self.pose_model = mp.solutions.pose
+        self.lstm_model = model_registry.load_model(ModelType.BEHAVIOR_LSTM)
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.behavior_classes = [
+            "normal", "aggressive", "anxious", "lethargic", "pain", "seizure"
+        ]
+    
+    def process_video(self, video_data):
+        # Save video data to temporary file
+        temp_path = "/tmp/temp_video.mp4"
+        with open(temp_path, "wb") as f:
+            f.write(video_data)
+        
+        # Open video file
+        cap = cv2.VideoCapture(temp_path)
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        # Sample frames (process every 5th frame to reduce computation)
+        frames = []
+        frame_idx = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            if frame_idx % 5 == 0:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frames.append(frame)
+            
+            frame_idx += 1
+        
+        cap.release()
+        return frames, fps
+    
+    def detect_pet(self, frame):
+        # Resize and normalize frame
+        frame_resized = cv2.resize(frame, (640, 640))
+        frame_norm = frame_resized / 255.0
+        
+        # Convert to tensor
+        frame_tensor = torch.from_numpy(frame_norm).permute(2, 0, 1).float().unsqueeze(0).to(self.device)
+        
+        # Run detection
+        with torch.no_grad():
+            detections = self.detection_model(frame_tensor)
+        
+        # Get highest confidence pet detection
+        best_detection = None
+        best_conf = 0
+        
+        for detection in detections[0]:
+            if detection[4] > 0.5:  # Confidence threshold
+                if detection[4] > best_conf:
+                    best_conf = detection[4]
+                    x1, y1, x2, y2 = detection[0:4].cpu().numpy()
+                    best_detection = {
+                        "bbox": [int(x1), int(y1), int(x2), int(y2)],
+                        "confidence": float(best_conf)
+                    }
+        
+        return best_detection
+    
+    def extract_pose(self, frame, bbox):
+        # Crop to pet region
+        x1, y1, x2, y2 = bbox
+        pet_region = frame[y1:y2, x1:x2]
+        
+        # Apply MediaPipe pose estimation
+        with self.pose_model.Pose(min_detection_confidence=0.5) as pose:
+            results = pose.process(pet_region)
+        
+        # Extract keypoints
+        keypoints = []
+        if results.pose_landmarks:
+            for landmark in results.pose_landmarks.landmark:
+                keypoints.append([landmark.x, landmark.y, landmark.z, landmark.visibility])
+        
+        return keypoints
+    
+    def analyze_behavior(self, pose_sequence):
+        # Convert pose sequence to tensor
+        seq_tensor = torch.tensor(pose_sequence, dtype=torch.float32).unsqueeze(0).to(self.device)
+        
+        # Run LSTM model
+        with torch.no_grad():
+            outputs = self.lstm_model(seq_tensor)
+            probs = torch.softmax(outputs, dim=1)[0].cpu().numpy()
+        
+        # Get predicted behavior and confidence
+        behavior_idx = np.argmax(probs)
+        confidence = float(probs[behavior_idx])
+        behavior_name = self.behavior_classes[behavior_idx]
+        
+        return behavior_name, confidence
+    
+    async def analyze(self, video_data) -> Dict:
+        # Process video into frames
+        frames, fps = self.process_video(video_data)
+        
+        # Detect pet and extract pose in each frame
+        pose_sequence = []
+        frame_results = []
+        
+        for i, frame in enumerate(frames):
+            # Detect pet
+            detection = self.detect_pet(frame)
+            if not detection:
+                continue
+            
+            # Extract pose
+            keypoints = self.extract_pose(frame, detection["bbox"])
+            if keypoints:
+                pose_sequence.append(keypoints)
+                frame_results.append({
+                    "frame_idx": i * 5,  # Accounting for sampling every 5th frame
+                    "bbox": detection["bbox"],
+                    "keypoints": keypoints
+                })
+        
+        # If not enough frames with detected poses
+        if len(pose_sequence) < 10:
+            return {"error": "Not enough frames with detected pet poses"}
+        
+        # Analyze behavior using LSTM
+        behavior, confidence = self.analyze_behavior(pose_sequence)
+        
+        # Check for abnormal behavior
+        is_abnormal = behavior != "normal"
+        
+        return {
+            "behavior": behavior,
+            "confidence": confidence,
+            "is_abnormal": is_abnormal,
+            "frame_count": len(frames),
+            "processed_frames": len(frame_results),
+            "fps": fps
+        }
+```
+
+# Test Strategy:
+Test pet detection with various video qualities. Verify pose estimation accuracy with different pet types. Test behavior analysis with videos of known behaviors. Measure processing time for different video lengths.

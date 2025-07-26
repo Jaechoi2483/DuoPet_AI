@@ -1,0 +1,89 @@
+# Task ID: 10
+# Title: Implement YouTube Video Recommendation Service
+# Status: pending
+# Dependencies: 1, 2, 5
+# Priority: medium
+# Description: Develop the service for recommending pet-related YouTube videos based on keyword analysis.
+# Details:
+Create a service that uses KeyBERT for keyword extraction from user queries or pet profiles, then uses the YouTube API to search for and filter relevant videos. Implement a recommendation algorithm that considers video quality, relevance, and engagement metrics.
+
+```python
+from keybert import KeyBERT
+from googleapiclient.discovery import build
+from typing import List, Dict
+
+class YouTubeRecommendationService:
+    def __init__(self, config):
+        self.keybert_model = KeyBERT()
+        self.youtube_api = build('youtube', 'v3', developerKey=config.YOUTUBE_API_KEY)
+    
+    def extract_keywords(self, text: str) -> List[str]:
+        keywords = self.keybert_model.extract_keywords(text, keyphrase_ngram_range=(1, 2), stop_words='english', top_n=5)
+        return [kw for kw, _ in keywords]
+    
+    def search_videos(self, keywords: List[str], max_results: int = 10) -> List[Dict]:
+        # Combine keywords for search
+        search_query = ' '.join(keywords) + ' pets'
+        
+        # Call YouTube API
+        search_response = self.youtube_api.search().list(
+            q=search_query,
+            part='snippet',
+            maxResults=max_results,
+            type='video'
+        ).execute()
+        
+        # Extract video information
+        videos = []
+        for item in search_response.get('items', []):
+            video_id = item['id']['videoId']
+            # Get video statistics
+            video_stats = self.youtube_api.videos().list(
+                part='statistics',
+                id=video_id
+            ).execute()
+            
+            # Extract relevant information
+            video_info = {
+                'id': video_id,
+                'title': item['snippet']['title'],
+                'description': item['snippet']['description'],
+                'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                'channel': item['snippet']['channelTitle'],
+                'published_at': item['snippet']['publishedAt'],
+                'view_count': int(video_stats['items'][0]['statistics'].get('viewCount', 0)),
+                'like_count': int(video_stats['items'][0]['statistics'].get('likeCount', 0))
+            }
+            videos.append(video_info)
+        
+        # Filter pet-related videos
+        filtered_videos = self.filter_pet_videos(videos)
+        
+        # Rank videos by relevance and engagement
+        ranked_videos = self.rank_videos(filtered_videos, keywords)
+        
+        return ranked_videos
+    
+    def filter_pet_videos(self, videos: List[Dict]) -> List[Dict]:
+        # Filter videos to ensure they're pet-related
+        pet_keywords = ['pet', 'dog', 'cat', 'animal', 'veterinary', 'puppy', 'kitten']
+        filtered = []
+        for video in videos:
+            text = video['title'].lower() + ' ' + video['description'].lower()
+            if any(kw in text for kw in pet_keywords):
+                filtered.append(video)
+        return filtered
+    
+    def rank_videos(self, videos: List[Dict], keywords: List[str]) -> List[Dict]:
+        # Score videos based on relevance and engagement
+        for video in videos:
+            relevance_score = sum(1 for kw in keywords if kw.lower() in video['title'].lower() or kw.lower() in video['description'].lower())
+            engagement_score = (video['view_count'] * 0.7 + video['like_count'] * 0.3) / 10000
+            video['score'] = relevance_score * 0.6 + engagement_score * 0.4
+        
+        # Sort by score
+        return sorted(videos, key=lambda x: x['score'], reverse=True)
+```
+
+# Test Strategy:
+Test keyword extraction with various pet-related inputs. Verify YouTube API integration and error handling. Test video filtering to ensure only pet-related content is recommended. Evaluate recommendation quality with different inputs.
