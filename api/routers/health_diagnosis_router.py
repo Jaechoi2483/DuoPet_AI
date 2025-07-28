@@ -21,96 +21,103 @@ logger = get_logger(__name__)
 
 router = APIRouter()
 
-# --- Service Initialization (Robust Path Handling) ---
-# 현재 라우터 파일의 위치를 기준으로 동적으로 경로를 설정합니다.
-# 이렇게 하면 프로젝트가 어떤 경로에 있더라도 모델을 찾을 수 있습니다.
-try:
-    # 1. 현재 파일의 절대 경로를 찾습니다.
-    current_file_path = Path(__file__).resolve()
-    # 2. /api/routers/ 디렉토리를 벗어나 프로젝트의 루트 디렉토리로 이동합니다.
-    # (DuoPet_AI/api/routers/health_diagnosis_router.py -> DuoPet_AI/)
-    project_root = current_file_path.parent.parent.parent
-    # 3. 모델 파일의 절대 경로를 조합합니다.
-    MODEL_PATH = project_root / "models" / "health_diagnosis" / "eye_disease" / "best_grouped_model.keras"
-    CLASS_MAP_PATH = project_root / "models" / "health_diagnosis" / "eye_disease" / "class_map.json"
+# --- Lazy Service Initialization ---
+# 서비스들을 전역 변수로 선언하지만 초기화는 나중에 합니다
+eye_disease_service = None
+bcs_service = None
+skin_disease_service = None
+orchestrator = None
 
-    # 4. 서비스 인스턴스를 생성합니다.
-    if MODEL_PATH.exists() and CLASS_MAP_PATH.exists():
-        eye_disease_service = EyeDiseaseService(model_path=str(MODEL_PATH), class_map_path=str(CLASS_MAP_PATH))
-        logger.info("EyeDiseaseService initialized successfully.")
+# 프로젝트 루트 경로만 미리 계산
+current_file_path = Path(__file__).resolve()
+project_root = current_file_path.parent.parent.parent
+
+def initialize_service(service_type: str):
+    """특정 서비스만 초기화합니다. 각 서비스는 독립적으로 로드됩니다."""
+    global eye_disease_service, bcs_service, skin_disease_service
+    
+    if service_type == "eye":
+        if eye_disease_service is not None:
+            return eye_disease_service
+            
+        try:
+            # 실제 존재하는 모델 파일 사용
+            MODEL_PATH = project_root / "models" / "health_diagnosis" / "eye_disease" / "eye_disease_fixed.h5"
+            # MODEL_PATH가 없으면 .keras 파일 시도
+            if not MODEL_PATH.exists():
+                MODEL_PATH = project_root / "models" / "health_diagnosis" / "eye_disease" / "best_grouped_model.keras"
+            CLASS_MAP_PATH = project_root / "models" / "health_diagnosis" / "eye_disease" / "class_map.json"
+            
+            if MODEL_PATH.exists() and CLASS_MAP_PATH.exists():
+                eye_disease_service = EyeDiseaseService(model_path=str(MODEL_PATH), class_map_path=str(CLASS_MAP_PATH))
+                logger.info("EyeDiseaseService initialized successfully.")
+                return eye_disease_service
+            else:
+                logger.error(f"Model or class map file not found. Searched paths:\n- {MODEL_PATH}\n- {CLASS_MAP_PATH}")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to initialize EyeDiseaseService: {e}", exc_info=True)
+            return None
+    
+    elif service_type == "bcs":
+        if bcs_service is not None:
+            return bcs_service
+            
+        try:
+            if os.getenv('SKIP_BCS_MODEL', 'false').lower() != 'true':
+                BCS_MODEL_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "bcs_efficientnet_v1.h5"
+                BCS_CONFIG_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "config.yaml"
+                
+                if BCS_MODEL_PATH.exists():
+                    bcs_service = BCSService(
+                        model_path=str(BCS_MODEL_PATH),
+                        config_path=str(BCS_CONFIG_PATH) if BCS_CONFIG_PATH.exists() else None
+                    )
+                    logger.info("BCSService initialized successfully.")
+                    return bcs_service
+                else:
+                    logger.error(f"BCS model not found at: {BCS_MODEL_PATH}")
+                    return None
+            else:
+                logger.info("Skipping BCS model initialization (SKIP_BCS_MODEL=true)")
+                return None
+        except Exception as e:
+            logger.error(f"Failed to initialize BCSService: {e}", exc_info=True)
+            return None
+    
+    elif service_type == "skin":
+        if skin_disease_service is not None:
+            return skin_disease_service
+            
+        try:
+            skin_disease_service = SkinDiseaseService()
+            logger.info("SkinDiseaseService initialized successfully.")
+            return skin_disease_service
+        except Exception as e:
+            logger.error(f"Failed to initialize SkinDiseaseService: {e}", exc_info=True)
+            return None
+    
     else:
-        eye_disease_service = None
-        logger.error(f"Model or class map file not found. Searched paths:\n- {MODEL_PATH}\n- {CLASS_MAP_PATH}")
-
-except Exception as e:
-    logger.error(f"Failed to initialize EyeDiseaseService: {e}", exc_info=True)
-    eye_disease_service = None
-
-# Initialize BCS Service (지연 로딩 옵션)
-_bcs_service = None
-try:
-    if os.getenv('SKIP_BCS_MODEL', 'false').lower() != 'true':
-        # Use same project root path resolution
-        BCS_MODEL_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "bcs_efficientnet_v1.h5"
-        BCS_CONFIG_PATH = project_root / "models" / "health_diagnosis" / "bcs" / "config.yaml"
-        
-        if BCS_MODEL_PATH.exists():
-            bcs_service = BCSService(
-                model_path=str(BCS_MODEL_PATH),
-                config_path=str(BCS_CONFIG_PATH) if BCS_CONFIG_PATH.exists() else None
-            )
-            logger.info("BCSService initialized successfully.")
-        else:
-            bcs_service = None
-            logger.error(f"BCS model not found at: {BCS_MODEL_PATH}")
-    else:
-        bcs_service = None
-        logger.info("Skipping BCS model initialization (SKIP_BCS_MODEL=true)")
-        
-except Exception as e:
-    logger.error(f"Failed to initialize BCSService: {e}", exc_info=True)
-    bcs_service = None
-
-# Initialize Skin Disease Service
-try:
-    skin_disease_service = SkinDiseaseService()
-    logger.info("SkinDiseaseService initialized successfully.")
-except Exception as e:
-    logger.error(f"Failed to initialize SkinDiseaseService: {e}", exc_info=True)
-    skin_disease_service = None
+        logger.error(f"Unknown service type: {service_type}")
+        return None
 
 def get_eye_disease_service():
-    if not eye_disease_service:
-        # 서비스가 초기화되지 않았을 때 더 명확한 에러를 발생시킵니다.
+    service = initialize_service("eye")
+    if not service:
         raise RuntimeError("EyeDiseaseService is not available. Check model paths and initialization logs.")
-    return eye_disease_service
+    return service
 
 def get_bcs_service():
-    if not bcs_service:
+    service = initialize_service("bcs")
+    if not service:
         raise RuntimeError("BCSService is not available. Check model paths and initialization logs.")
-    return bcs_service
+    return service
 
 def get_skin_disease_service():
-    if not skin_disease_service:
+    service = initialize_service("skin")
+    if not service:
         raise RuntimeError("SkinDiseaseService is not available. Check model paths and initialization logs.")
-    return skin_disease_service
-
-# Initialize Health Diagnosis Orchestrator
-try:
-    orchestrator = HealthDiagnosisOrchestrator(
-        eye_service=eye_disease_service,
-        bcs_service=bcs_service,
-        skin_service=skin_disease_service
-    )
-    logger.info("HealthDiagnosisOrchestrator initialized successfully.")
-except Exception as e:
-    logger.error(f"Failed to initialize HealthDiagnosisOrchestrator: {e}", exc_info=True)
-    orchestrator = None
-
-def get_orchestrator():
-    if not orchestrator:
-        raise RuntimeError("HealthDiagnosisOrchestrator is not available.")
-    return orchestrator
+    return service
 
 
 class DiseaseDetection(BaseModel):
@@ -157,40 +164,34 @@ class SkinDiseaseResult(BaseModel):
     requires_vet_visit: bool = Field(..., description="Whether vet visit is required")
 
 
-@router.post("/analyze", response_model=StandardResponse)
-async def analyze_health(
-    images: List[UploadFile] = File(..., description="Pet images for comprehensive health analysis"),
+@router.post("/analyze-single", response_model=StandardResponse)
+async def analyze_single_health(
+    images: List[UploadFile] = File(..., description="Pet images for health analysis"),
     pet_type: str = Form("dog"),
+    diagnosis_type: str = Form(..., description="Type of diagnosis: eye, bcs, or skin"),
     pet_age: Optional[float] = Form(None),
     pet_weight: Optional[float] = Form(None),
-    pet_breed: Optional[str] = Form(None),
-    diagnosis_types: Optional[str] = Form(None),
-    orchestrator_service: HealthDiagnosisOrchestrator = Depends(get_orchestrator)
+    pet_breed: Optional[str] = Form(None)
 ):
     """
-    Comprehensive pet health analysis using multiple AI models
+    Single type pet health analysis to avoid TensorFlow graph conflicts
     
-    This endpoint orchestrates multiple health diagnosis models to provide
-    a comprehensive health assessment including:
-    - Eye disease detection
-    - Body Condition Score (BCS) assessment
-    - Skin disease diagnosis
-    
-    - **images**: Multiple images of the pet (recommended: various angles for BCS, close-ups for eye/skin)
+    - **images**: Images of the pet (number depends on diagnosis type)
     - **pet_type**: Type of pet (dog/cat)
+    - **diagnosis_type**: Type of diagnosis to perform (eye/bcs/skin)
     - **pet_age**: Age of pet in years (optional)
     - **pet_weight**: Current weight in kg (optional)
     - **pet_breed**: Breed of the pet (optional)
-    - **diagnosis_types**: Comma-separated list of diagnoses to perform (eye,bcs,skin). If not specified, all available diagnoses are performed.
     """
-    logger.info(f"Comprehensive health analysis request for {pet_type} with {len(images)} images")
+    logger.info(f"Single health analysis request for {diagnosis_type} with {len(images)} images")
     
     try:
-        # Parse diagnosis types if provided
-        if diagnosis_types:
-            diagnosis_list = [d.strip() for d in diagnosis_types.split(",")]
-        else:
-            diagnosis_list = None
+        # Validate diagnosis type
+        if diagnosis_type not in ["eye", "bcs", "skin"]:
+            return create_error_response(
+                error_code=ErrorCode.VALIDATION_ERROR,
+                message=f"유효하지 않은 진단 유형입니다: {diagnosis_type}. eye, bcs, skin 중 하나를 선택하세요."
+            )
         
         # Build pet info
         pet_info = {}
@@ -202,45 +203,130 @@ async def analyze_health(
         if pet_breed:
             pet_info['breed'] = pet_breed
         
-        # Run comprehensive diagnosis
-        result = await orchestrator_service.comprehensive_diagnosis(
-            images=images,
-            pet_type=pet_type,
-            pet_info=pet_info if pet_info else None,
-            diagnosis_types=diagnosis_list
-        )
-        
-        # Create response message
-        health_status = result.get('health_status', 'unknown')
-        overall_score = result.get('overall_health_score', 0)
-        
-        status_messages = {
-            'excellent': f"반려동물의 건강 상태가 매우 좋습니다! (점수: {overall_score}/100)",
-            'good': f"반려동물의 건강 상태가 양호합니다. (점수: {overall_score}/100)",
-            'fair': f"주의가 필요한 건강 상태입니다. (점수: {overall_score}/100)",
-            'poor': f"건강 관리가 시급합니다. (점수: {overall_score}/100)",
-            'critical': f"즉시 수의사 진료가 필요합니다! (점수: {overall_score}/100)"
-        }
-        
-        message = status_messages.get(health_status, f"건강 평가 완료 (점수: {overall_score}/100)")
-        
-        return create_success_response(
-            data=result,
-            message=message
-        )
-        
-    except ValueError as e:
-        logger.error(f"Validation error in comprehensive analysis: {str(e)}")
-        return create_error_response(
-            message=f"입력 검증 오류: {str(e)}",
-            code="400"
-        )
+        # Process based on diagnosis type
+        if diagnosis_type == "eye":
+            if len(images) < 1:
+                return create_error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="안구 질환 진단을 위해서는 최소 1장의 사진이 필요합니다."
+                )
+            
+            service = get_eye_disease_service()
+            result = service.diagnose(images[0])  # Use first image
+            
+            return create_success_response(
+                data={
+                    "diagnosis_type": "eye",
+                    "results": result,
+                    "message": "안구질환 분석이 완료되었습니다."
+                }
+            )
+            
+        elif diagnosis_type == "bcs":
+            if len(images) < 3:
+                return create_error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="체형 평가를 위해서는 최소 3장의 사진이 필요합니다. 정확한 진단을 위해서는 13장을 권장합니다."
+                )
+            
+            service = get_bcs_service()
+            result = await service.assess_body_condition(
+                images=images,
+                pet_type=pet_type,
+                pet_info=pet_info if pet_info else None
+            )
+            
+            return create_success_response(
+                data={
+                    "diagnosis_type": "bcs",
+                    "results": result,
+                    "message": f"체형 평가가 완료되었습니다. BCS 점수: {result['bcs_score']}/9"
+                }
+            )
+            
+        elif diagnosis_type == "skin":
+            if len(images) < 1:
+                return create_error_response(
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    message="피부 질환 진단을 위해서는 최소 1장의 사진이 필요합니다."
+                )
+            
+            service = get_skin_disease_service()
+            result = await service.diagnose_skin_condition(
+                image=images[0],  # Use first image
+                pet_type=pet_type,
+                include_segmentation=False  # 성능을 위해 기본값 False
+            )
+            
+            # Create message based on diagnosis
+            if result['has_skin_disease']:
+                message = f"피부질환이 감지되었습니다: {result.get('disease_type', '미분류')}"
+            else:
+                message = "정상적인 피부 상태입니다"
+            
+            # 필요한 필드만 정리하여 반환
+            cleaned_result = {
+                "has_skin_disease": result.get("has_skin_disease", False),
+                "disease_type": result.get("disease_type", "정상"),
+                "confidence": round(result.get("confidence", 0.0), 4),
+                "disease_confidence": round(result.get("confidence", 0.0), 4),  # 프론트엔드 호환성
+                "status": result.get("status", "success"),
+                "severity": "mild" if not result.get("has_skin_disease") else "moderate",
+                "recommendations": ["정기적인 피부 관리를 유지하세요.", "청결한 환경을 유지하세요."] if not result.get("has_skin_disease") else ["수의사 상담을 권장합니다.", "피부 상태를 주의깊게 관찰하세요."],
+                "requires_vet_visit": result.get("has_skin_disease", False)
+            }
+            
+            # binary classification 확률 정보 추가 (정상/질환 확률)
+            if "binary_classification" in result and result["binary_classification"]:
+                binary_probs = result["binary_classification"]
+                cleaned_result["binary_probabilities"] = {
+                    "normal": round(binary_probs.get("normal", 0.0), 4),
+                    "disease": round(binary_probs.get("disease", 0.0), 4)
+                }
+                
+                # 경계선상의 경우 경고 추가
+                disease_prob = binary_probs.get("disease", 0.0)
+                if 0.3 < disease_prob < 0.5:
+                    cleaned_result["warning"] = f"질환 가능성이 {round(disease_prob * 100, 1)}% 감지되었습니다. 주의깊게 관찰하시고 증상이 지속되면 수의사 상담을 권장합니다."
+            
+            # predictions가 있으면 포함 (간단히 정리)
+            if "predictions" in result and result["predictions"]:
+                cleaned_result["predictions"] = result["predictions"]
+            
+            return create_success_response(
+                data={
+                    "diagnosis_type": "skin",
+                    "results": cleaned_result,
+                    "message": message
+                }
+            )
+            
     except Exception as e:
-        logger.error(f"Error in comprehensive health analysis: {str(e)}")
+        logger.error(f"Error in single health analysis: {str(e)}", exc_info=True)
         return create_error_response(
-            message=f"종합 건강 분석 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR,
+            message=f"{diagnosis_type} 분석 중 오류가 발생했습니다: {str(e)}"
         )
+
+
+# Keep the old endpoint for backward compatibility but mark as deprecated
+@router.post("/analyze", response_model=StandardResponse, deprecated=True)
+async def analyze_health(
+    images: List[UploadFile] = File(..., description="Pet images for comprehensive health analysis"),
+    pet_type: str = Form("dog"),
+    pet_age: Optional[float] = Form(None),
+    pet_weight: Optional[float] = Form(None),
+    pet_breed: Optional[str] = Form(None),
+    diagnosis_types: Optional[str] = Form(None)
+):
+    """
+    [DEPRECATED] This endpoint is deprecated due to TensorFlow graph conflicts.
+    Please use /analyze-single endpoint instead.
+    """
+    return create_error_response(
+        error_code=ErrorCode.METHOD_NOT_ALLOWED,
+        message="이 엔드포인트는 더 이상 사용되지 않습니다. /analyze-single 엔드포인트를 사용해주세요. 진단 유형(eye, bcs, skin)을 명시적으로 선택해야 합니다."
+    )
 
 
 @router.post("/analyze/eye", response_model=StandardResponse[EyeDiseaseResult])
@@ -269,14 +355,14 @@ async def analyze_eye_disease(
         
         return create_success_response(
             data=result,
-            message="안구질환 분석이 완료되었습니다."
+            metadata={"message": "안구질환 분석이 완료되었습니다."}
         )
         
     except Exception as e:
         logger.error(f"Error in eye disease analysis: {str(e)}")
         return create_error_response(
-            message=f"안구질환 분석 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR,
+            message=f"안구질환 분석 중 오류가 발생했습니다: {str(e)}"
         )
 
 
@@ -387,14 +473,14 @@ async def analyze_body_condition(
         
         return create_success_response(
             data=bcs_response.model_dump(),
-            message=f"체형 평가가 완료되었습니다. BCS 점수: {result['bcs_score']}/9"
+            metadata={"message": f"체형 평가가 완료되었습니다. BCS 점수: {result['bcs_score']}/9"}
         )
         
     except Exception as e:
         logger.error(f"Error in BCS analysis: {str(e)}")
         return create_error_response(
             message=f"체형 평가 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR
         )
 
 
@@ -411,13 +497,13 @@ async def get_bcs_image_guide(
         guide = service.get_image_guide()
         return create_success_response(
             data=guide,
-            message="BCS 촬영 가이드를 확인하세요"
+            metadata={"message": "BCS 촬영 가이드를 확인하세요"}
         )
     except Exception as e:
         logger.error(f"Error getting BCS guide: {str(e)}")
         return create_error_response(
             message=f"가이드 조회 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR
         )
 
 
@@ -470,14 +556,14 @@ async def analyze_skin_disease(
         
         return create_success_response(
             data=skin_response.model_dump(),
-            message=message
+            metadata={"message": message}
         )
         
     except Exception as e:
         logger.error(f"Error in skin disease analysis: {str(e)}")
         return create_error_response(
             message=f"피부질환 분석 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR
         )
 
 
@@ -497,13 +583,13 @@ async def get_skin_diseases(
         diseases = service.get_supported_diseases(pet_type)
         return create_success_response(
             data=diseases,
-            message="지원되는 피부질환 목록입니다"
+            metadata={"message": "지원되는 피부질환 목록입니다"}
         )
     except Exception as e:
         logger.error(f"Error getting skin diseases: {str(e)}")
         return create_error_response(
             message=f"피부질환 목록 조회 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR
         )
 
 
@@ -520,61 +606,70 @@ async def get_skin_model_status(
         status = service.get_model_status()
         return create_success_response(
             data=status,
-            message="피부질환 모델 상태입니다"
+            metadata={"message": "피부질환 모델 상태입니다"}
         )
     except Exception as e:
         logger.error(f"Error getting model status: {str(e)}")
         return create_error_response(
             message=f"모델 상태 조회 중 오류가 발생했습니다: {str(e)}",
-            code="500"
+            error_code=ErrorCode.UNKNOWN_ERROR
         )
 
 
-@router.get("/status", response_model=StandardResponse)
-async def get_health_service_status(
-    orchestrator_service: HealthDiagnosisOrchestrator = Depends(get_orchestrator)
-):
+@router.get("/diagnosis-types", response_model=StandardResponse)
+async def get_diagnosis_types():
     """
-    Get status of all health diagnosis services
+    Get available diagnosis types and their requirements
     
-    Returns information about which services are available and operational.
+    Returns information about each diagnosis type and image requirements.
     """
-    try:
-        available_services = orchestrator_service.get_available_services()
-        
-        # Get individual service status if needed
-        service_details = {
-            'eye_disease': {
-                'available': available_services['eye_disease'],
-                'model_loaded': eye_disease_service is not None
+    diagnosis_types = {
+        "types": [
+            {
+                "id": "eye",
+                "name": "안구 질환 진단",
+                "description": "백내장, 각막궤양 등 안구 질환을 진단합니다",
+                "min_images": 1,
+                "recommended_images": 2,
+                "image_guide": "양쪽 눈을 각각 클로즈업으로 촬영하세요"
             },
-            'body_condition': {
-                'available': available_services['body_condition'],
-                'model_loaded': bcs_service is not None
+            {
+                "id": "bcs",
+                "name": "체형 평가 (BCS)",
+                "description": "반려동물의 체형 상태를 9단계로 평가합니다",
+                "min_images": 3,
+                "recommended_images": 13,
+                "image_guide": "정면, 옆면, 위에서 등 다양한 각도로 전신을 촬영하세요"
             },
-            'skin_disease': {
-                'available': available_services['skin_disease'],
-                'model_loaded': skin_disease_service is not None
+            {
+                "id": "skin",
+                "name": "피부 질환 진단",
+                "description": "피부 질환의 유무와 종류를 진단합니다",
+                "min_images": 1,
+                "recommended_images": 1,
+                "image_guide": "문제가 있는 피부 부위를 클로즈업으로 촬영하세요"
+            }
+        ],
+        "usage_guide": {
+            "endpoint": "/api/v1/health-diagnose/analyze-single",
+            "method": "POST",
+            "required_fields": {
+                "images": "진단 유형에 따른 이미지 파일들",
+                "diagnosis_type": "진단 유형 (eye, bcs, skin 중 하나)",
+                "pet_type": "반려동물 종류 (dog 또는 cat)"
+            },
+            "optional_fields": {
+                "pet_age": "나이 (년)",
+                "pet_weight": "체중 (kg)",
+                "pet_breed": "품종"
             }
         }
-        
-        status = {
-            'orchestrator_ready': orchestrator is not None,
-            'available_services': available_services,
-            'service_details': service_details,
-            'total_services': available_services['total_available']
-        }
-        
-        return create_success_response(
-            data=status,
-            message=f"{available_services['total_available']}개의 건강 진단 서비스가 활성화되어 있습니다"
-        )
-    except Exception as e:
-        logger.error(f"Error getting service status: {str(e)}")
-        return create_error_response(
-            message=f"서비스 상태 조회 중 오류가 발생했습니다: {str(e)}",
-            code="500"
-        )
+    }
+    
+    return create_success_response(
+        data=diagnosis_types,
+        metadata={"message": "사용 가능한 진단 유형 목록입니다"}
+    )
 
 
 @router.get("/guide", response_model=StandardResponse)
@@ -641,5 +736,5 @@ async def get_diagnosis_guide():
     
     return create_success_response(
         data=guide,
-        message="건강 진단을 위한 사진 촬영 가이드입니다"
+        metadata={"message": "건강 진단을 위한 사진 촬영 가이드입니다"}
     )

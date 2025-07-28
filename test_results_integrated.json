@@ -1,0 +1,37 @@
+{
+  "eye_disease": {
+    "status": "success",
+    "model_path": "models\\health_diagnosis\\eye_disease\\eye_disease_fixed.h5",
+    "load_time": 1.534668207168579,
+    "prediction_time": 0.20167326927185059,
+    "test_result": "녹내장"
+  },
+  "skin_disease": {
+    "cat_binary": {
+      "status": "success",
+      "load_time": 0.5837233066558838,
+      "prediction_time": 0.09823083877563477
+    },
+    "dog_binary": {
+      "status": "success",
+      "load_time": 0.565335750579834,
+      "prediction_time": 0.0822141170501709
+    },
+    "dog_multi_136": {
+      "status": "success",
+      "load_time": 0.5621275901794434,
+      "prediction_time": 0.08501887321472168
+    },
+    "dog_multi_456": {
+      "status": "success",
+      "load_time": 0.6917800903320312,
+      "prediction_time": 0.08478164672851562
+    }
+  },
+  "bcs": {
+    "status": "success",
+    "wrapper_load_time": 43.12972712516785,
+    "prediction_time": 3.1815812587738037,
+    "test_result": "정상 체형"
+  }
+}

@@ -5,11 +5,31 @@ This module provides centralized model management with caching and version contr
 """
 
 import os
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import json
 from enum import Enum
 from typing import Dict, Any, Optional, Union
 from pathlib import Path
 import tensorflow as tf
+tf.config.run_functions_eagerly(True)
 import torch
 import numpy as np
 from datetime import datetime
@@ -96,32 +116,36 @@ class ModelRegistry:
             },
             ModelType.SKIN_DISEASE_CLASSIFICATION.value: {
                 "cat_binary": {
-                    "path": "health_diagnosis/skin_disease/classification/cat_binary",
+                    "path": "skin_disease/classification/cat_binary/cat_binary_model.h5",
                     "framework": ModelFramework.TENSORFLOW.value,
-                    "model_type": "checkpoint",
-                    "checkpoint_prefix": "model-007-0.511353-0.772705-0.776322-0.768861",
-                    "input_shape": [224, 224, 3]
+                    "model_type": "h5",
+                    "input_shape": [224, 224, 3],
+                    "output_classes": 2,
+                    "class_map_path": "skin_disease/classification/cat_binary/cat_binary_class_map.json"
                 },
                 "dog_binary": {
-                    "path": "health_diagnosis/skin_disease/classification/dog_binary",
+                    "path": "skin_disease/classification/dog_binary/dog_binary_model.h5",
                     "framework": ModelFramework.TENSORFLOW.value,
-                    "model_type": "checkpoint",
-                    "checkpoint_prefix": "model-004-0.437360-0.806570-0.806528-0.806891",
-                    "input_shape": [224, 224, 3]
+                    "model_type": "h5",
+                    "input_shape": [224, 224, 3],
+                    "output_classes": 2,
+                    "class_map_path": "skin_disease/classification/dog_binary/dog_binary_class_map.json"
                 },
                 "dog_multi_136": {
-                    "path": "health_diagnosis/skin_disease/classification/dog_multi_136",
+                    "path": "skin_disease/classification/dog_multi_136/dog_multi_136_model.h5",
                     "framework": ModelFramework.TENSORFLOW.value,
-                    "model_type": "checkpoint",
-                    "checkpoint_prefix": "model-009-0.851382-0.821520",
-                    "input_shape": [224, 224, 3]
+                    "model_type": "h5",
+                    "input_shape": [224, 224, 3],
+                    "output_classes": 4,
+                    "class_map_path": "skin_disease/classification/dog_multi_136/dog_multi_136_class_map.json"
                 },
                 "dog_multi_456": {
-                    "path": "health_diagnosis/skin_disease/classification/dog_multi_456",
+                    "path": "skin_disease/classification/dog_multi_456/dog_multi_456_model.h5",
                     "framework": ModelFramework.TENSORFLOW.value,
-                    "model_type": "checkpoint",
-                    "checkpoint_prefix": "model-005-0.881675-0.851780",
-                    "input_shape": [224, 224, 3]
+                    "model_type": "h5",
+                    "input_shape": [224, 224, 3],
+                    "output_classes": 4,
+                    "class_map_path": "skin_disease/classification/dog_multi_456/dog_multi_456_class_map.json"
                 }
             },
             ModelType.SKIN_DISEASE_SEGMENTATION.value: {
@@ -232,7 +256,8 @@ class ModelRegistry:
         if not model_path.exists():
             raise FileNotFoundError(f"Eye disease model not found at {model_path}")
         
-        return tf.keras.models.load_model(str(model_path))
+        model = tf.keras.models.load_model(str(model_path))
+        return model
     
     def _load_bcs_model(self) -> tf.keras.Model:
         """Load body condition score model"""
@@ -242,14 +267,23 @@ class ModelRegistry:
         if not model_path.exists():
             raise FileNotFoundError(f"BCS model not found at {model_path}")
         
-        return tf.keras.models.load_model(str(model_path))
+        model = tf.keras.models.load_model(str(model_path))
+        return model
     
     def _load_skin_disease_classification_model(self, sub_type: str) -> tf.keras.Model:
         """Load skin disease classification model"""
         config = self.config[ModelType.SKIN_DISEASE_CLASSIFICATION.value][sub_type]
         model_path = self.models_dir / config["path"]
         
-        if config.get("model_type") == "checkpoint":
+        if config.get("model_type") == "h5":
+            # Load H5 model directly
+            if not model_path.exists():
+                raise FileNotFoundError(f"Skin disease model not found at {model_path}")
+            
+            logger.info(f"Loading skin disease model from H5: {model_path}")
+            return tf.keras.models.load_model(str(model_path))
+            
+        elif config.get("model_type") == "checkpoint":
             # Load from checkpoint
             checkpoint_path = model_path / config["checkpoint_prefix"]
             

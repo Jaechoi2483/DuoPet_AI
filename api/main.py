@@ -6,18 +6,22 @@ This is the main entry point for the DuoPet AI microservice.
 It provides AI-powered features for pet health and behavior analysis.
 """
 
+# TensorFlow 설정을 가장 먼저 수행
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # WARNING 이상만 표시
+
+import tensorflow as tf
+# 프로그램 시작 시 eager execution 명시적 활성화
+tf.config.run_functions_eagerly(True)
+
 import time
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-import tensorflow as tf
-# TensorFlow 로그 레벨 설정 (중복 출력 방지)
-import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # WARNING 이상만 표시
-
-# TensorFlow Eager/Graph 모드 충돌 해결
-tf.config.run_functions_eagerly(True)
+# PIL 이미지 처리 설정
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from services.chatbot.predict import RAGChatbot
 

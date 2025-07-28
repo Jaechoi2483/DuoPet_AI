@@ -18,6 +18,24 @@ from services.skin_disease_service import SkinDiseaseService
 from services.model_registry import ModelRegistry, get_model_registry
 from common.logger import get_logger
 
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
 logger = get_logger(__name__)
 
 
@@ -96,7 +114,12 @@ class HealthDiagnosisOrchestrator:
         
         # Determine which diagnoses to perform
         if diagnosis_types is None:
-            diagnosis_types = ["eye", "bcs", "skin"]  # All available
+            # 기본값: 이미지가 3장 미만이면 BCS를 제외
+            if len(images) < 3:
+                diagnosis_types = ["eye", "skin"]  # BCS 제외
+                logger.info(f"Only {len(images)} images provided, excluding BCS from diagnosis")
+            else:
+                diagnosis_types = ["eye", "bcs", "skin"]  # All available
         
         # Prepare tasks for parallel execution
         tasks = []
@@ -159,12 +182,8 @@ class HealthDiagnosisOrchestrator:
         """Run eye disease diagnosis"""
         try:
             logger.info("Running eye disease diagnosis")
-            # Run in thread pool to avoid blocking
-            result = await asyncio.get_event_loop().run_in_executor(
-                self.executor,
-                self.eye_service.diagnose,
-                image
-            )
+            # Run synchronously in the main thread to avoid TensorFlow context issues
+            result = self.eye_service.diagnose(image)
             return {'eye_health': result}
         except Exception as e:
             logger.error(f"Eye diagnosis failed: {e}")

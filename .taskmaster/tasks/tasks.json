@@ -414,11 +414,116 @@
             "parentTaskId": 22
           }
         ]
+      },
+      {
+        "id": 23,
+        "title": "Implement Eye Disease Classification System with Major Categories",
+        "description": "Develop a diagnostic system for eye diseases that uses five major categories (cornea, conjunctiva, lens, eyelid, and interior of the eye) and provides detailed information for specific conditions within each category.",
+        "details": "This task involves implementing a comprehensive eye disease classification system based on five major categories:\n\n1. Set up the model architecture:\n   - Use a pre-trained CNN backbone (ResNet50, EfficientNet, or similar)\n   - Implement a two-stage classification approach:\n     - First stage: Classify into 5 major categories (cornea, conjunctiva, lens, eyelid, interior)\n     - Second stage: Classify into specific diseases within each category\n\n2. Prepare the dataset structure:\n```\neye_disease_dataset/\n  ├── cornea/\n  │   ├── keratitis/\n  │   ├── corneal_ulcer/\n  │   └── ...\n  ├── conjunctiva/\n  │   ├── conjunctivitis/\n  │   ├── pterygium/\n  │   └── ...\n  ├── lens/\n  │   ├── cataract/\n  │   ├── lens_dislocation/\n  │   └── ...\n  ├── eyelid/\n  │   ├── blepharitis/\n  │   ├── chalazion/\n  │   └── ...\n  └── interior/\n      ├── glaucoma/\n      ├── retinopathy/\n      └── ...\n```\n\n3. Implement the model training pipeline:\n```python\nimport tensorflow as tf\nfrom tensorflow.keras.applications import ResNet50\nfrom tensorflow.keras.layers import Dense, GlobalAveragePooling2D\nfrom tensorflow.keras.models import Model\n\n# First-stage model (major categories)\ndef create_major_category_model(input_shape=(224, 224, 3), num_classes=5):\n    base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)\n    x = base_model.output\n    x = GlobalAveragePooling2D()(x)\n    x = Dense(512, activation='relu')(x)\n    predictions = Dense(num_classes, activation='softmax')(x)\n    model = Model(inputs=base_model.input, outputs=predictions)\n    return model\n\n# Second-stage models (specific diseases per category)\ndef create_specific_disease_model(input_shape=(224, 224, 3), num_classes=None, category=None):\n    base_model = ResNet50(weights='imagenet', include_top=False, input_shape=input_shape)\n    x = base_model.output\n    x = GlobalAveragePooling2D()(x)\n    x = Dense(512, activation='relu')(x)\n    predictions = Dense(num_classes, activation='softmax')(x)\n    model = Model(inputs=base_model.input, outputs=predictions, name=f\"{category}_classifier\")\n    return model\n```\n\n4. Implement the disease information database:\n```python\n# Define disease information structure\ndisease_info = {\n    \"cornea\": {\n        \"keratitis\": {\n            \"description\": \"Inflammation of the cornea\",\n            \"symptoms\": [\"Pain\", \"Redness\", \"Blurred vision\", \"Light sensitivity\"],\n            \"treatments\": [\"Antibiotics\", \"Antifungals\", \"Antivirals\"],\n            \"severity\": \"Moderate to severe\"\n        },\n        # Other corneal diseases...\n    },\n    # Other categories with their specific diseases...\n}\n```\n\n5. Create the inference pipeline:\n```python\ndef predict_eye_disease(image_path):\n    # Load and preprocess image\n    img = tf.keras.preprocessing.image.load_img(image_path, target_size=(224, 224))\n    img_array = tf.keras.preprocessing.image.img_to_array(img)\n    img_array = tf.keras.applications.resnet50.preprocess_input(img_array)\n    img_array = tf.expand_dims(img_array, 0)\n    \n    # First stage: predict major category\n    major_category_pred = major_category_model.predict(img_array)\n    major_category_idx = tf.argmax(major_category_pred[0]).numpy()\n    major_category = ['cornea', 'conjunctiva', 'lens', 'eyelid', 'interior'][major_category_idx]\n    \n    # Second stage: predict specific disease within the category\n    specific_model = specific_disease_models[major_category]\n    specific_disease_pred = specific_model.predict(img_array)\n    specific_disease_idx = tf.argmax(specific_disease_pred[0]).numpy()\n    specific_disease = specific_disease_classes[major_category][specific_disease_idx]\n    \n    # Get detailed information about the disease\n    disease_details = disease_info[major_category][specific_disease]\n    \n    return {\n        \"major_category\": major_category,\n        \"specific_disease\": specific_disease,\n        \"confidence\": float(specific_disease_pred[0][specific_disease_idx]),\n        \"details\": disease_details\n    }\n```\n\n6. Integrate with the existing API:\n```python\nfrom fastapi import FastAPI, UploadFile, File\nimport io\nfrom PIL import Image\n\napp = FastAPI()\n\n@app.post(\"/api/eye-disease-diagnosis\")\nasync def diagnose_eye_disease(file: UploadFile = File(...)):\n    # Read and process the uploaded image\n    contents = await file.read()\n    image = Image.open(io.BytesIO(contents))\n    image_path = \"temp_image.jpg\"\n    image.save(image_path)\n    \n    # Get diagnosis\n    diagnosis = predict_eye_disease(image_path)\n    \n    return diagnosis\n```\n\n7. Implement a robust model loading mechanism using the fixes from Task 21:\n```python\nfrom model_loader import ModelLoader\n\n# Load models with compatibility fixes\nmajor_category_model = ModelLoader.load_model(\"models/eye_disease_major_categories.h5\")\nspecific_disease_models = {\n    category: ModelLoader.load_model(f\"models/eye_disease_{category}_specific.h5\")\n    for category in ['cornea', 'conjunctiva', 'lens', 'eyelid', 'interior']\n}\n```",
+        "testStrategy": "To verify the eye disease classification system:\n\n1. Test the major category classification model:\n   - Create a test dataset with images from each of the 5 major categories\n   - Calculate accuracy, precision, recall, and F1-score for the major category classification\n   - Generate a confusion matrix to identify any categories that are frequently misclassified\n   - Verify the model achieves at least 90% accuracy on the test set\n   ```python\n   from sklearn.metrics import classification_report, confusion_matrix\n   \n   # Test major category model\n   y_true = []  # Ground truth labels\n   y_pred = []  # Predicted labels\n   \n   for image_path, true_label in test_dataset:\n       prediction = major_category_model.predict(preprocess_image(image_path))\n       pred_label = np.argmax(prediction[0])\n       y_true.append(true_label)\n       y_pred.append(pred_label)\n   \n   print(classification_report(y_true, y_pred, target_names=['cornea', 'conjunctiva', 'lens', 'eyelid', 'interior']))\n   print(confusion_matrix(y_true, y_pred))\n   ```\n\n2. Test the specific disease classification models:\n   - For each major category, create a test dataset with images of specific diseases\n   - Calculate accuracy, precision, recall, and F1-score for each specific disease model\n   - Verify each model achieves at least 85% accuracy on its respective test set\n\n3. Test the end-to-end diagnosis pipeline:\n   - Create a comprehensive test set with images covering all major categories and specific diseases\n   - Verify the system correctly identifies both the major category and specific disease\n   - Check that the confidence scores are reasonable (not overly confident for difficult cases)\n   - Measure the average inference time and ensure it's under 2 seconds per image\n\n4. Test the disease information retrieval:\n   - Verify that detailed information is correctly returned for each diagnosed disease\n   - Check that all required fields (description, symptoms, treatments, severity) are present\n   - Ensure the information is medically accurate by having it reviewed by a medical professional\n\n5. Integration testing with the API:\n   - Test the API endpoint with various image formats (JPEG, PNG) and sizes\n   - Verify proper error handling for invalid or non-eye-related images\n   - Test concurrent requests to ensure the system handles multiple diagnoses simultaneously\n   - Measure response times under load to ensure performance requirements are met\n\n6. Conduct user acceptance testing:\n   - Have medical professionals review the system's diagnoses on a set of known cases\n   - Compare the system's performance against human experts\n   - Collect feedback on the usefulness and accuracy of the detailed disease information",
+        "status": "pending",
+        "dependencies": [
+          21,
+          17,
+          3,
+          5
+        ],
+        "priority": "high",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Set up the two-stage model architecture",
+            "description": "Implement the CNN-based model architecture for the two-stage classification approach (major categories and specific diseases).",
+            "dependencies": [],
+            "details": "Create the model architecture using a pre-trained CNN backbone (ResNet50, EfficientNet, or similar). Implement both the first-stage model for classifying into 5 major categories (cornea, conjunctiva, lens, eyelid, interior) and the second-stage models for classifying specific diseases within each category. Ensure proper layer configuration, activation functions, and model compilation with appropriate loss functions and metrics.",
+            "status": "pending",
+            "testStrategy": "Verify model architecture by printing model summaries. Test forward pass with sample data to ensure correct output shapes. Validate that both stages of the model can be trained independently."
+          },
+          {
+            "id": 2,
+            "title": "Prepare and organize the eye disease dataset",
+            "description": "Structure and preprocess the eye disease dataset according to the hierarchical classification system.",
+            "dependencies": [],
+            "details": "Organize the dataset into the specified hierarchical structure with major categories and specific diseases. Implement data preprocessing functions including image resizing, normalization, and augmentation. Create training, validation, and test splits while maintaining class distribution. Generate data loaders for efficient batch processing during training.",
+            "status": "pending",
+            "testStrategy": "Verify dataset structure and class balance. Test data loading speed and memory efficiency. Validate that augmentations produce reasonable images. Ensure consistent preprocessing across training and inference pipelines."
+          },
+          {
+            "id": 3,
+            "title": "Implement model training pipeline",
+            "description": "Develop the training pipeline for both stages of the eye disease classification system.",
+            "dependencies": [
+              "23.1",
+              "23.2"
+            ],
+            "details": "Create training scripts for both the major category classifier and the specific disease classifiers. Implement learning rate scheduling, early stopping, and model checkpointing. Add support for transfer learning and fine-tuning. Incorporate metrics tracking and visualization using TensorBoard or similar tools. Optimize the training process for the available hardware.",
+            "status": "pending",
+            "testStrategy": "Test training with a small subset of data to verify convergence. Monitor resource usage during training. Validate that checkpointing and resuming training works correctly. Ensure metrics are properly logged and visualized."
+          },
+          {
+            "id": 4,
+            "title": "Create comprehensive disease information database",
+            "description": "Develop a structured database of eye disease information for each specific condition.",
+            "dependencies": [],
+            "details": "Create a comprehensive JSON or database structure containing detailed information for each eye disease, organized by major category. Include descriptions, symptoms, treatments, severity levels, and any other relevant clinical information. Ensure the information is medically accurate and properly formatted for display in the API responses.",
+            "status": "pending",
+            "testStrategy": "Verify database structure and completeness. Validate medical accuracy of information with domain experts if possible. Test database access performance and integration with the prediction pipeline."
+          },
+          {
+            "id": 5,
+            "title": "Implement the inference pipeline",
+            "description": "Develop the end-to-end inference pipeline for diagnosing eye diseases from input images.",
+            "dependencies": [
+              "23.1",
+              "23.3",
+              "23.4"
+            ],
+            "details": "Create a complete inference pipeline that takes an input image, preprocesses it, runs it through both stages of classification, and returns detailed diagnosis information. Implement confidence scoring and threshold-based filtering. Add support for handling edge cases and low-confidence predictions. Optimize the pipeline for inference speed.",
+            "status": "pending",
+            "testStrategy": "Test the pipeline with various image types and qualities. Verify correct handling of edge cases. Measure inference time and resource usage. Validate that the pipeline correctly integrates disease information with model predictions."
+          },
+          {
+            "id": 6,
+            "title": "Integrate with FastAPI endpoints",
+            "description": "Create FastAPI endpoints for the eye disease classification system and integrate with the existing API.",
+            "dependencies": [
+              "23.5"
+            ],
+            "details": "Implement FastAPI endpoints for eye disease diagnosis. Create request validation and error handling. Implement file upload functionality for images. Integrate with the existing authentication system from Task 4. Ensure proper API documentation using OpenAPI/Swagger. Add appropriate logging for monitoring and debugging.",
+            "status": "pending",
+            "testStrategy": "Test API endpoints with various image uploads. Verify error handling with invalid inputs. Test authentication integration. Measure API response times under different loads. Validate API documentation accuracy."
+          },
+          {
+            "id": 7,
+            "title": "Implement robust model loading mechanism",
+            "description": "Develop a reliable model loading system with compatibility fixes from Task 21.",
+            "dependencies": [
+              "23.1",
+              "23.3"
+            ],
+            "details": "Create a model loading utility that handles version compatibility issues. Implement lazy loading to improve startup time. Add model verification to ensure integrity. Create a caching mechanism for frequently used models. Implement graceful fallbacks for handling loading errors. Integrate the fixes from Task 21 to ensure compatibility across different environments.",
+            "status": "pending",
+            "testStrategy": "Test model loading with different model versions. Verify lazy loading improves startup time. Test recovery from corrupted model files. Validate that caching improves performance for repeated inferences."
+          },
+          {
+            "id": 8,
+            "title": "Implement evaluation and monitoring system",
+            "description": "Develop a system for evaluating model performance and monitoring the classification system in production.",
+            "dependencies": [
+              "23.3",
+              "23.5",
+              "23.6"
+            ],
+            "details": "Create comprehensive evaluation metrics for both stages of classification. Implement confusion matrix visualization and analysis. Add monitoring for model drift and performance degradation. Create a dashboard for visualizing system performance. Implement logging for prediction results to enable continuous improvement. Add support for collecting user feedback on predictions.",
+            "status": "pending",
+            "testStrategy": "Verify accuracy of evaluation metrics. Test monitoring system with simulated model drift. Validate that the logging system captures all necessary information. Test dashboard functionality and visualization accuracy."
+          }
+        ]
       }
     ],
     "metadata": {
       "created": "2025-07-14T01:06:02.233Z",
-      "updated": "2025-07-25T07:07:59.252Z",
+      "updated": "2025-07-27T08:47:53.893Z",
       "description": "Tasks for master context"
     }
   }

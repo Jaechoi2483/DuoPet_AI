@@ -7,12 +7,32 @@ Adapter for BCS assessment model that processes multiple images to evaluate pet 
 import numpy as np
 from PIL import Image
 import tensorflow as tf
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+tf.config.run_functions_eagerly(True)
 from typing import Dict, Any, List, Union
 import yaml
 from pathlib import Path
 
 from .base_adapter import ModelAdapter
 from common.logger import get_logger
+import io
 
 logger = get_logger(__name__)
 
@@ -113,20 +133,32 @@ class BCSAdapter(ModelAdapter):
             Preprocessed image array
         """
         try:
-            # Convert to PIL Image
+            # 이미지 열기
             if hasattr(img_data, 'file'):
-                image = Image.open(img_data.file).convert('RGB')
+                # FastAPI UploadFile
+                img_data.file.seek(0)
+                image = Image.open(img_data.file)
+            elif hasattr(img_data, 'read'):
+                # File-like object
+                content = img_data.read()
+                if hasattr(img_data, 'seek'):
+                    img_data.seek(0)
+                image = Image.open(io.BytesIO(content))
             elif isinstance(img_data, np.ndarray):
-                image = Image.fromarray(img_data).convert('RGB')
+                image = Image.fromarray(img_data)
             elif isinstance(img_data, Image.Image):
-                image = img_data.convert('RGB')
+                image = img_data
             else:
                 raise ValueError(f"Unsupported input type: {type(img_data)}")
             
-            # Resize
+            # RGB로 변환
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            
+            # 리사이즈
             image = image.resize(self.input_shape)
             
-            # Convert to array
+            # NumPy 배열로 변환
             img_array = np.array(image, dtype=np.float32)
             
             # Normalize using ImageNet statistics
@@ -151,14 +183,25 @@ class BCSAdapter(ModelAdapter):
         Returns:
             Model predictions
         """
-        # The model expects a batch dimension
-        if len(processed_data.shape) == 4:
-            # Already has batch dimension
-            predictions = self.model.predict(processed_data, verbose=0)
+        # Check if model expects multiple inputs
+        if hasattr(self.model, 'inputs') and len(self.model.inputs) > 1:
+            # Model expects multiple separate inputs (one for each image)
+            # Convert stacked array to list of individual arrays
+            if len(processed_data.shape) == 4 and processed_data.shape[0] == self.num_required_images:
+                # Split the batch into individual images
+                input_list = [np.expand_dims(processed_data[i], axis=0) for i in range(processed_data.shape[0])]
+                predictions = self.model.predict(input_list, verbose=0)
+            else:
+                raise ValueError(f"Model expects {len(self.model.inputs)} inputs, but data shape is {processed_data.shape}")
         else:
-            # Add batch dimension
-            batch_data = np.expand_dims(processed_data, axis=0)
-            predictions = self.model.predict(batch_data, verbose=0)
+            # Model expects single batched input
+            if len(processed_data.shape) == 4:
+                # Already has batch dimension
+                predictions = self.model.predict(processed_data, verbose=0)
+            else:
+                # Add batch dimension
+                batch_data = np.expand_dims(processed_data, axis=0)
+                predictions = self.model.predict(batch_data, verbose=0)
             
         return predictions
     

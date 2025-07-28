@@ -3,6 +3,7 @@
 """
 
 import tensorflow as tf
+tf.config.run_functions_eagerly(True)
 import logging
 from typing import Dict, Optional, Any
 from pathlib import Path

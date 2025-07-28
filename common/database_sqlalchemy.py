@@ -71,7 +71,7 @@ def init_db():
         # 필요하다면 raise e를 통해 프로그램을 중단시킬 수도 있습니다.
 
 
-def close_db():
+async def close_db():
     """애플리케이션 종료 시 데이터베이스 연결 풀을 정리합니다."""
     if engine:
         engine.dispose()
