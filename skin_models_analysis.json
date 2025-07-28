@@ -1,0 +1,70 @@
+{
+  "classification": {
+    "dog_binary": {
+      "exists": true,
+      "file_size_mb": 9.555351257324219,
+      "input_shape": "(None, 224, 224, 3)",
+      "output_shape": "(None, 1)",
+      "total_params": 2422081,
+      "loadable": true,
+      "predictable": true
+    },
+    "cat_binary": {
+      "exists": true,
+      "file_size_mb": 9.555320739746094,
+      "input_shape": "(None, 224, 224, 3)",
+      "output_shape": "(None, 1)",
+      "total_params": 2422081,
+      "loadable": true,
+      "predictable": true
+    },
+    "dog_multi_136": {
+      "exists": true,
+      "file_size_mb": 9.556129455566406,
+      "input_shape": "(None, 224, 224, 3)",
+      "output_shape": "(None, 3)",
+      "total_params": 2422339,
+      "loadable": true,
+      "predictable": true
+    },
+    "dog_multi_456": {
+      "exists": true,
+      "file_size_mb": 9.556129455566406,
+      "input_shape": "(None, 224, 224, 3)",
+      "output_shape": "(None, 3)",
+      "total_params": 2422339,
+      "loadable": true,
+      "predictable": true
+    }
+  },
+  "segmentation": {
+    "dog_A1": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "dog_A2": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "dog_A3": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "dog_A4": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "dog_A5": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "dog_A6": {
+      "exists": true,
+      "checkpoint_count": 0
+    },
+    "cat_A2": {
+      "exists": true,
+      "checkpoint_count": 0
+    }
+  }
+}

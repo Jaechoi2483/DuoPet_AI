@@ -12,6 +12,24 @@ from datetime import datetime
 
 from common.logger import get_logger
 
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
 logger = get_logger(__name__)
 
 

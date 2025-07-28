@@ -8,11 +8,31 @@ import json
 import numpy as np
 from PIL import Image
 import tensorflow as tf
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+tf.config.run_functions_eagerly(True)
 from typing import Dict, Any, Union
 from pathlib import Path
 
 from .base_adapter import ModelAdapter
 from common.logger import get_logger
+import io
 
 logger = get_logger(__name__)
 
@@ -58,23 +78,36 @@ class EyeDiseaseAdapter(ModelAdapter):
         Returns:
             Preprocessed image array ready for model input
         """
-        # Convert to PIL Image if needed
+        # 이미지 열기
         if hasattr(input_data, 'file'):
-            # Handle UploadFile from FastAPI
-            image = Image.open(input_data.file).convert('RGB')
+            # FastAPI UploadFile
+            input_data.file.seek(0)
+            image = Image.open(input_data.file)
+        elif hasattr(input_data, 'read'):
+            # File-like object
+            content = input_data.read()
+            if hasattr(input_data, 'seek'):
+                input_data.seek(0)
+            image = Image.open(io.BytesIO(content))
         elif isinstance(input_data, np.ndarray):
-            image = Image.fromarray(input_data).convert('RGB')
+            image = Image.fromarray(input_data)
         elif isinstance(input_data, Image.Image):
-            image = input_data.convert('RGB')
+            image = input_data
         else:
             raise ValueError(f"Unsupported input type: {type(input_data)}")
         
-        # Resize to model input size
+        # RGB로 변환
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+        
+        # 리사이즈
         image = image.resize(self.input_shape)
         
-        # Convert to array and normalize
-        img_array = tf.keras.preprocessing.image.img_to_array(image)
-        img_array = img_array / 255.0  # Normalize to [0, 1]
+        # NumPy 배열로 변환
+        img_array = np.array(image, dtype=np.float32)
+        
+        # Normalize to [0, 1]
+        img_array = img_array / 255.0
         
         # Add batch dimension
         img_array = np.expand_dims(img_array, axis=0)

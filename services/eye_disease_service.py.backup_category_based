@@ -1,0 +1,228 @@
+"""
+안구질환 진단 서비스 - 범용 버전
+TensorFlow Graph/Eager mode 모두 지원
+"""
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
+import tensorflow as tf
+import json
+import numpy as np
+from PIL import Image
+from typing import Dict, Tuple
+import logging
+import sys
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+logger = logging.getLogger(__name__)
+
+# TF 모드 확인
+logger.info(f"[EyeDiseaseService] TensorFlow {tf.__version__} - Initial Eager: {tf.executing_eagerly()}")
+
+class EyeDiseaseService:
+    def __init__(self, model_path: str, class_map_path: str):
+        """안구 질환 진단 서비스 초기화"""
+        
+        self.model = None
+        self.use_eager = tf.executing_eagerly()
+        
+        logger.info(f"Initializing EyeDiseaseService in {'Eager' if self.use_eager else 'Graph'} mode")
+        
+        # Custom objects
+        custom_objects = {
+            'swish': tf.nn.swish,
+            'Swish': tf.keras.layers.Activation(tf.nn.swish)
+        }
+        
+        # 모델 로드 시도
+        model_loaded = False
+        
+        # 가능한 모든 경로 시도
+        model_paths = [
+            model_path.replace('.keras', '_tf2_complete.h5'),
+            model_path.replace('.keras', '_fixed.h5'),
+            model_path.replace('.keras', '_tf2.h5'),
+            model_path
+        ]
+        
+        for path in model_paths:
+            if os.path.exists(path) and not model_loaded:
+                logger.info(f"Trying to load model from {path}")
+                
+                try:
+                    # Graph mode인 경우
+                    if not self.use_eager:
+                        # Session 생성
+                        config = tf.compat.v1.ConfigProto()
+                        config.gpu_options.allow_growth = True
+                        self.session = tf.compat.v1.Session(config=config)
+                        
+                        with self.session.as_default():
+                            with self.session.graph.as_default():
+                                self.model = tf.keras.models.load_model(
+                                    path,
+                                    custom_objects=custom_objects,
+                                    compile=False
+                                )
+                                
+                                # Graph mode에서 수동 컴파일
+                                self.model.compile(
+                                    optimizer='adam',
+                                    loss='categorical_crossentropy',
+                                    metrics=['accuracy']
+                                )
+                                
+                                # 입력 placeholder 생성
+                                self.input_placeholder = tf.compat.v1.placeholder(
+                                    tf.float32, 
+                                    shape=[None, 224, 224, 3],
+                                    name='input_image'
+                                )
+                                
+                                # 예측 텐서 생성
+                                self.predictions_tensor = self.model(self.input_placeholder)
+                                
+                                # Graph 초기화
+                                self.session.run(tf.compat.v1.global_variables_initializer())
+                                
+                    else:
+                        # Eager mode인 경우
+                        self.model = tf.keras.models.load_model(
+                            path,
+                            custom_objects=custom_objects,
+                            compile=False
+                        )
+                        
+                        # Eager mode 컴파일
+                        self.model.compile(
+                            optimizer='adam',
+                            loss='categorical_crossentropy',
+                            metrics=['accuracy']
+                        )
+                    
+                    model_loaded = True
+                    logger.info(f"Successfully loaded model from {path}")
+                    break
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to load from {path}: {e}")
+                    continue
+        
+        if not model_loaded:
+            raise ValueError("Could not load any eye disease model")
+        
+        # 클래스 맵 로드
+        with open(class_map_path, 'r', encoding='utf-8') as f:
+            self.class_map = json.load(f)
+        
+        self.input_shape = (224, 224)
+        
+        # 모델 테스트
+        try:
+            test_input = np.zeros((1, 224, 224, 3), dtype=np.float32)
+            if self.use_eager:
+                _ = self.model(test_input, training=False)
+            else:
+                _ = self.session.run(
+                    self.predictions_tensor,
+                    feed_dict={self.input_placeholder: test_input}
+                )
+            logger.info("Model test successful")
+        except Exception as e:
+            logger.warning(f"Model test failed: {e}")
+        
+        logger.info(f"EyeDiseaseService initialized successfully in {'Eager' if self.use_eager else 'Graph'} mode")
+    
+    def preprocess_image(self, image_file) -> np.ndarray:
+        """이미지 전처리"""
+        if hasattr(image_file, 'file'):
+            image_file.file.seek(0)
+            img = Image.open(image_file.file).convert('RGB')
+        elif hasattr(image_file, 'seek'):
+            image_file.seek(0)
+            img = Image.open(image_file).convert('RGB')
+        else:
+            img = Image.open(image_file).convert('RGB')
+        
+        img = img.resize(self.input_shape)
+        img_array = np.array(img).astype(np.float32) / 255.0
+        img_array = np.expand_dims(img_array, axis=0)
+        
+        return img_array
+    
+    def predict(self, image_array: np.ndarray) -> Tuple[str, float]:
+        """예측 수행 - Graph/Eager mode 자동 처리"""
+        
+        try:
+            if self.use_eager:
+                # Eager mode 예측
+                predictions = self.model(image_array, training=False)
+                if hasattr(predictions, 'numpy'):
+                    predictions_np = predictions.numpy()
+                else:
+                    predictions_np = predictions
+            else:
+                # Graph mode 예측
+                predictions_np = self.session.run(
+                    self.predictions_tensor,
+                    feed_dict={self.input_placeholder: image_array}
+                )
+            
+            # 디버그: 전체 예측 확률 출력
+            logger.info(f"Raw predictions shape: {predictions_np.shape}")
+            logger.info(f"All predictions: {predictions_np[0]}")
+            
+            # 각 클래스별 확률 출력
+            for idx, prob in enumerate(predictions_np[0]):
+                class_name = self.class_map.get(str(idx), f"Unknown_{idx}")
+                logger.info(f"Class {idx} ({class_name}): {prob:.4f} ({prob*100:.1f}%)")
+            
+            # 결과 처리
+            predicted_class_index = int(np.argmax(predictions_np[0]))
+            confidence = float(predictions_np[0][predicted_class_index])
+            
+        except Exception as e:
+            logger.error(f"Prediction error: {e}")
+            # Fallback: model.predict 사용
+            try:
+                if self.use_eager:
+                    predictions_np = self.model.predict(image_array, verbose=0)
+                else:
+                    with self.session.as_default():
+                        predictions_np = self.model.predict(image_array, verbose=0)
+                
+                predicted_class_index = int(np.argmax(predictions_np[0]))
+                confidence = float(predictions_np[0][predicted_class_index])
+                
+            except Exception as e2:
+                logger.error(f"Fallback prediction also failed: {e2}")
+                # 기본값 반환
+                predicted_class_index = 0
+                confidence = 0.0
+        
+        # 클래스 이름 매핑
+        predicted_class_name = self.class_map.get(str(predicted_class_index), "Unknown")
+        
+        return predicted_class_name, confidence
+    
+    def diagnose(self, image_file) -> Dict[str, any]:
+        """진단 수행"""
+        try:
+            preprocessed_image = self.preprocess_image(image_file)
+            disease, confidence = self.predict(preprocessed_image)
+            
+            return {
+                "disease": disease,
+                "confidence": confidence
+            }
+        except Exception as e:
+            logger.error(f"Diagnosis error: {e}")
+            return {
+                "disease": "진단 오류",
+                "confidence": 0.0
+            }
+    
+    def __del__(self):
+        """리소스 정리"""
+        if hasattr(self, 'session') and self.session is not None:
+            self.session.close()

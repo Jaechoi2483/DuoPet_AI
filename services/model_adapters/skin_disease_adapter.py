@@ -7,6 +7,25 @@ Adapter for skin disease detection models including classification and segmentat
 import numpy as np
 from PIL import Image
 import tensorflow as tf
+
+def convert_numpy_types(obj):
+    """numpy 타입을 Python 기본 타입으로 변환"""
+    import numpy as np
+    if isinstance(obj, dict):
+        return {k: convert_numpy_types(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(v) for v in obj]
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+        return int(obj)
+    elif isinstance(obj, (np.float64, np.float32, np.float16)):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    return obj
+
+tf.config.run_functions_eagerly(True)
 from typing import Dict, Any, List, Optional, Tuple, Union
 import cv2
 from pathlib import Path
