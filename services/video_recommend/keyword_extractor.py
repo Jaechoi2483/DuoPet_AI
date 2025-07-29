@@ -1,6 +1,5 @@
 # services/video_recommend/keyword_extractor.py
 
-from itertools import combinations
 from typing import List
 from keybert import KeyBERT
 

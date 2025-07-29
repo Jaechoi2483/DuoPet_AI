@@ -341,6 +341,12 @@ app.include_router(
     tags=["Behavior Analysis"]
 )
 
+app.include_router(
+    video_recommend_router.router,
+    prefix="/api/v1/video-recommend",
+    tags=["Video Recommendation"]
+)
+
 
 # Development/Debug endpoints
 if settings.DEBUG:
