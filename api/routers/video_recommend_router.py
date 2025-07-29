@@ -7,7 +7,7 @@ from typing import Optional
 
 from common.response import create_success_response, create_error_response, StandardResponse, ErrorCode
 from services.video_recommend.recommender import recommend_youtube_videos_from_db_tags
-from services.video_recommend.db_models.content_entity import ContentEntity
+from services.video_recommend.db_models.board_entity import BoardEntity
 
 # ✅ 추가된 부분: settings 불러오기 및 직접 Oracle 연결
 from sqlalchemy import create_engine
@@ -45,7 +45,7 @@ def recommend_videos(request: VideoRecommendRequest):
     db: Session = SessionLocal()  # ✅ get_db() 대신 직접 생성한 세션 사용
     try:
         # 1. 게시글 조회
-        content = db.query(ContentEntity).filter(ContentEntity.content_id == request.contentId).first()
+        content = db.query(BoardEntity).filter(BoardEntity.content_id == request.contentId).first()
         print("✅ content 조회 완료")
 
         # 2. 태그 접근
