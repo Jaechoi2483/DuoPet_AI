@@ -7,20 +7,20 @@ passlib[bcrypt]==1.7.4
 
 # AI/ML Libraries
 torch==2.1.0
-torchvision==0.16.0
-tensorflow==2.14.0
+torchaudio==2.1.0
+tensorflow==2.10.0
 opencv-python==4.8.1.78
 deepface==0.0.79
+# deeplabcut[tf]
+# deeplabcut-live
 mediapipe==0.10.7
-ultralytics==8.0.200  # YOLOv8/v12
+ultralytics==8.0.200
 efficientnet-pytorch==0.7.1
 
 # DeepLabCut and Pose Estimation
-deeplabcut[tf]
-deeplabcut-live
-imgaug>=0.4.0
-filterpy>=1.4.5
-numba>=0.58.1
+# imgaug>=0.4.0
+# filterpy>=1.4.5
+# numba>=0.58.1
 
 # Custom YOLOv5 dependencies
 Cython
@@ -29,6 +29,7 @@ Cython
 openai==1.6.1
 keybert==0.8.3
 transformers==4.35.2
+sentence-transformers==2.2.2
 google-api-python-client==2.111.0
 youtube-data-api==0.0.21
 
@@ -50,6 +51,7 @@ oracledb==2.0.0
 python-dotenv==1.0.0
 pyyaml==6.0.1
 pydantic==2.5.3
+pydantic-settings==2.0.3
 requests==2.31.0
 aiofiles==23.2.1
 pytest==7.4.3
@@ -66,7 +68,7 @@ flake8==6.1.0
 mypy==1.7.1
 pre-commit==3.6.0
 
-# 챗봇용
+# chatbot
 torchaudio
 sentence-transformers
 chromadb
