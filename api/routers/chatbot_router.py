@@ -21,7 +21,6 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
-# --- Pydantic 모델 정의 ---
 class ChatRequest(BaseModel):
     message: str = Field(..., description="User message")
     user_id: str = Field(..., description="User ID for context")
@@ -41,11 +40,8 @@ class ChatResponseData(BaseModel):
 
 
 
-# --- 의존성 주입 함수 ---
 def get_chatbot(request: Request) -> RAGChatbot:
-    """
-    FastAPI 앱 상태(app.state)에서 초기화된 챗봇 인스턴스를 가져옵니다.
-    """
+
     if not hasattr(request.app.state, 'chatbot') or request.app.state.chatbot is None:
         logger.error("Chatbot instance not found in app state. It may have failed to initialize.")
         raise HTTPException(
@@ -58,17 +54,14 @@ def get_chatbot(request: Request) -> RAGChatbot:
 
 
 
-# --- API 엔드포인트 (수정 필요) ---
 @router.post("/chat", response_model=StandardResponse[ChatResponseData])
 async def chat(
         request_data: ChatRequest,
         chatbot: RAGChatbot = Depends(get_chatbot),
-        # 💡 새로운 파일의 get_user_profile_for_chatbot 함수를 의존성 주입으로 사용
         user_profile: Dict[str, Any] = Depends(get_user_profile_for_chatbot)
 ):
     logger.info(f"Chat request from user: {request_data.user_id}")
     try:
-        # user_profile은 이미 Depends를 통해 주입되었으므로 바로 사용
         response_data = chatbot.ask(request_data.message, user_profile)
         response_model_data = ChatResponseData(**response_data)
         return create_success_response(data=response_model_data)
