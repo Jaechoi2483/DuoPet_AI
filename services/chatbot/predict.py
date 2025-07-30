@@ -48,7 +48,6 @@ except Exception as e:
     raise RuntimeError(f"🚨 OpenAI 클라이언트 초기화 실패: {e}")
 
 
-# --- RAG 챗봇 클래스 정의 ---
 class RAGChatbot:
     def __init__(self, site_url: str, max_crawl_pages: int = 50):
         print("🤖 RAG 챗봇 초기화를 시작합니다...")
@@ -178,8 +177,6 @@ class RAGChatbot:
             page_title = soup.title.string.strip() if soup.title else '제목 없음'
             print(f"  [페이지 제목] {page_title}")
 
-            # [핵심 수정] React CSS Modules를 고려하여, 특정 패턴으로 시작하는 클래스 이름을 가진 콘텐츠 영역을 찾습니다.
-            # 공지사항 상세, 자유게시판 상세 페이지의 메인 컨테이너를 우선적으로 찾습니다.
             content_area = soup.select_one('div[class*="NoticeDetail_container"]') or \
                            soup.select_one('div[class*="FreeBoardDetail_container"]') or \
                            soup.find('main') or \
@@ -274,9 +271,8 @@ class RAGChatbot:
                     detected_actions.add(action)
 
         if not detected_actions:
-            return None  # 감지된 키워드가 없으면 None을 반환
+            return None
 
-        # 추천할 기능의 상세 정보를 self.site_functions에서 찾습니다.
         action_details = []
         for action_name in detected_actions:
             for func in self.site_functions:
@@ -290,7 +286,6 @@ class RAGChatbot:
         if not action_details:
             return None
 
-        # 미리 정의된 응답 JSON을 생성하여 반환합니다.
         return {
             "answer": "혹시 이런 기능들을 찾고 계신가요? 아래 버튼으로 빠르게 이동해 보세요.",
             "suggested_actions": action_details,
@@ -298,14 +293,11 @@ class RAGChatbot:
         }
 
     def _hybrid_retrieve(self, query: str, n_results: int = 5, source_filter: str = None) -> str:
-        """
-        [수정] KeyBERT로 키워드를 추출하고 시맨틱 검색을 함께 수행하여 관련 정보를 가져옵니다.
-        """
+
         if self.db_collection.count() == 0:
             return ""
 
-        # 1. [추가] KeyBERT를 사용하여 질문에서 핵심 키워드 추출
-        # kw_model.extract_keywords는 (키워드, 유사도) 튜플 리스트를 반환합니다.
+
         try:
             keywords = [keyword for keyword, score in self.kw_model.extract_keywords(query, top_n=5)]
             print(f"  [추출된 키워드] {keywords}")
@@ -313,7 +305,7 @@ class RAGChatbot:
             print(f"🚨 KeyBERT 키워드 추출 중 오류 발생: {e}")
             keywords = []
 
-        # 2. [수정] 원본 질문과 키워드를 합쳐 검색 정확도 향상
+
         enhanced_query = query + " " + " ".join(keywords)
         print(f"  [강화된 검색어] {enhanced_query}")
 
@@ -326,7 +318,7 @@ class RAGChatbot:
             query_params['where'] = where_clause
             print(f"  [메타데이터 필터링 적용] source: {source_filter}")
 
-        # 3. 강화된 검색어로 벡터 DB 쿼리
+
         semantic_results = self.db_collection.query(**query_params)
 
         docs_with_metadata = []
@@ -339,14 +331,13 @@ class RAGChatbot:
 
     def _generate_final_response(self, query: str, context: str, user_profile: Dict[str, Any],
                                  history: List[Dict[str, str]]) -> Dict[str, Any]:
-        """단순하고 강력한 프롬프트를 사용하여 LLM에 최종 답변 생성을 요청합니다."""
-        # 닉네임을 우선적으로 사용하고, 없으면 이름을 사용, 둘 다 없으면 '회원'으로 대체
+
         user_display_name = user_profile.get('nickname', user_profile.get('name', '회원'))
 
         functions_string = json.dumps(self.site_functions, indent=2, ensure_ascii=False)
         history_string = "\n".join([f"{msg['role']}: {msg['content']}" for msg in history])
 
-        # 💡 사용자 프로필 정보를 프롬프트에 더 상세히 포함시키기
+
         user_profile_string_parts = []
         if user_profile.get('user_id'):
             user_profile_string_parts.append(f"사용자 ID: {user_profile['user_id']}")
@@ -383,8 +374,7 @@ class RAGChatbot:
                 if pet.get('registration_date'): pet_details += f", 등록일: {pet['registration_date']}"
                 user_profile_string_parts.append(pet_details)
 
-        # 🚨 'ROLE' 필드는 사용자 이름과 혼동되지 않도록 명확히 '사용자 시스템 역할'로 지칭합니다.
-        #    만약 이 정보가 챗봇의 답변에 필요 없다면, 이 부분을 주석 처리하거나 제거할 수 있습니다.
+
         if user_profile.get('role'):
             user_profile_string_parts.append(f"사용자 시스템 역할: {user_profile['role']}")
 
@@ -452,15 +442,9 @@ class RAGChatbot:
             return {"answer": "죄송합니다, AI 모델과 통신하는 중에 문제가 발생했습니다.", "suggested_actions": [], "predicted_questions": []}
 
     def ask(self, query: str, user_profile: Dict[str, Any], history: List[Dict[str, str]] = []) -> Dict[str, Any]:
-        """
-        메인 실행 함수.
-        [수정] 사용자 로그인 상태를 확인하여 응답 로직을 분기합니다.
-        """
-        # 1. 사용자 로그인 상태 확인
         is_logged_in = user_profile and user_profile.get('user_id') not in [None, '0']
         user_display_name = user_profile.get('nickname', '고객')
 
-        # 2. 로그인 사용자의 '로그인' 질문에 대한 즉각적인 답변
         if is_logged_in and any(keyword in query for keyword in ["로그인", "가입"]):
             print(f"[로그인 상태 확인] '{user_display_name}'님은 이미 로그인 상태입니다. 확정된 답변을 즉시 반환합니다.")
             return {
@@ -475,15 +459,11 @@ class RAGChatbot:
                     "자유게시판에 다른 사람들은 무슨 글을 썼어?"
                 ]
             }
-
-        # 3. try...finally 구문을 사용하여 기능 목록을 안전하게 임시 변경 및 복원
         original_functions = self.site_functions
         if is_logged_in:
             print("[로그인 상태 확인] 추천 기능 목록에서 '로그인'을 임시로 제외합니다.")
             self.site_functions = [func for func in original_functions if func['name'] != 'login']
-
         try:
-            # --- 맞춤법 검사 ---
             try:
                 spell_checker = SpellChecker()
                 result_dict = spell_checker.check_spelling(query)
@@ -497,18 +477,14 @@ class RAGChatbot:
                 print(f"🚨 맞춤법 검사 중 오류 발생 (원본 질문 사용): '{e}'")
                 corrected_query = query
 
-            # --- 키워드 기반 기능 추천 ---
             keyword_response = self._check_for_keyword_redirect(corrected_query)
             if keyword_response:
                 print(f"\n[키워드 감지] '{corrected_query}'에 대한 빠른 응답 기능을 제공합니다.")
                 return keyword_response
-
-            # --- RAG 및 LLM 호출 ---
             context = self._hybrid_retrieve(corrected_query)
             print(f"\n[검색된 컨텍스트]\n---\n{context}\n---")
             response_json = self._generate_final_response(corrected_query, context, user_profile, history)
 
-            # --- 추천 기능(suggested_actions) 정리 ---
             if "suggested_actions" in response_json and isinstance(response_json["suggested_actions"], list):
                 action_details = []
                 valid_action_names = {func['name'] for func in self.site_functions}
@@ -525,7 +501,6 @@ class RAGChatbot:
             else:
                 response_json["suggested_actions"] = []
 
-            # --- 예상 질문(predicted_questions) 선택 ---
             selected_questions = []
             if response_json.get("suggested_actions"):
                 first_action_name = response_json["suggested_actions"][0]['name']
@@ -535,31 +510,26 @@ class RAGChatbot:
                 selected_questions = self.predefined_questions['default']
 
             final_questions = []
-            # 사용자의 첫 번째 반려동물 정보를 가져옴 (없으면 None)
             pet = user_profile['pet_info'][0] if user_profile.get('pet_info') else None
 
             for q_template in selected_questions:
                 if pet:
-                    # 반려동물 정보가 있으면, 템플릿에 정보를 채워 넣습니다.
-                    # .format()은 KeyError를 발생시킬 수 있으므로, .replace()를 안전하게 사용합니다.
+
                     question = q_template.replace('{pet_name}', pet.get('name', '반려동물'))
                     question = question.replace('{pet_species}', pet.get('species', '반려동물'))
-                    question = question.replace('{pet_age}', str(pet.get('age', 'N살')))  # 나이는 문자열로 변환
+                    question = question.replace('{pet_age}', str(pet.get('age', 'N살')))
                     final_questions.append(question)
                 else:
-                    # 반려동물 정보가 없으면, 템플릿 변수를 일반적인 단어로 바꿉니다.
                     question = q_template.replace('{pet_name}', '반려동물')
                     question = question.replace('{pet_species}', '반려동물')
                     question = question.replace('{pet_age}', '우리 아이')
                     final_questions.append(question)
 
-            # response_json의 predicted_questions를 최종 완성된 질문 목록으로 덮어씁니다.
             response_json["predicted_questions"] = final_questions[:3]
 
             return response_json
 
         finally:
-            # [수정] try 블록의 작업이 끝나면(성공/실패 무관) 항상 원래 기능 목록으로 복원
             self.site_functions = original_functions
             if is_logged_in:
                 print("[요청 처리 완료] 기능 목록을 원래 상태로 복원합니다.")
