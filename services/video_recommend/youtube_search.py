@@ -5,11 +5,20 @@ import requests
 from typing import List, Dict
 from dotenv import load_dotenv
 
+# .env에서 YOUTUBE_API_KEY 불러오기
 load_dotenv()
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
 
 def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
+    '''
+    주어진 키워드로 유튜브에서 영상을 검색하고, 추천에서 사용할 수 있는 상세 정보를 반환
+
+    1단계 : search.list로 videoId 검색
+    2단계: videos.list로 videoId 상세 조회 (제목, 설명, 조회수 등 포함)
+    '''
+
+    # API 키 없을 경우 종료
     if not YOUTUBE_API_KEY:
         print("❌ YouTube API 키가 설정되지 않았습니다.")
         return []
@@ -30,6 +39,7 @@ def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
         search_res.raise_for_status()
         search_items = search_res.json().get("items", [])
 
+        # videoId만 추출
         video_ids = [item["id"]["videoId"] for item in search_items if "videoId" in item.get("id", {})]
         if not video_ids:
             return []
@@ -43,7 +53,7 @@ def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
     videos_params = {
         "part": "snippet,contentDetails,statistics",
         "key": YOUTUBE_API_KEY,
-        "id": ",".join(video_ids)
+        "id": ",".join(video_ids)   # 여러 videoId를 콤마로 연결
     }
 
     try:
@@ -57,6 +67,7 @@ def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
             stats = item.get("statistics", {})
             content = item.get("contentDetails", {})
 
+            # 추천 시스템에서 사용하는 필드
             results.append({
                 "video_id": item.get("id", ""),
                 "title": snippet.get("title", ""),
