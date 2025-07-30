@@ -11,8 +11,9 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # WARNING 이상만 표시
 
 import tensorflow as tf
+
 # 프로그램 시작 시 eager execution 명시적 활성화
-tf.config.run_functions_eagerly(True)
+# tf.config.run_functions_eagerly(True)
 
 import time
 import asyncio
@@ -59,6 +60,8 @@ from api.middleware import (
     RateLimitMiddleware,
     SecurityHeadersMiddleware
 )
+
+from api.routers import health_diagnosis_router_gpt
 # 💡 database.py에서 사용할 함수들을 가져옵니다.
 from common.database import (
     connect_to_databases,
@@ -334,19 +337,16 @@ app.include_router(
     prefix="/api/v1/health-diagnose",
     tags=["Health Diagnosis"]
 )
-
+app.include_router(
+    health_diagnosis_router_gpt.router,
+    prefix="/api/v1/gpt-diagnose",  # 예: /gpt-diagnose 라는 새 주소 할당
+    tags=["Health Diagnosis (GPT)"]
+)
 app.include_router(
     behavior_analysis_router.router,
     prefix="/api/v1/behavior-analysis",
     tags=["Behavior Analysis"]
 )
-
-app.include_router(
-    video_recommend_router.router,
-    prefix="/api/v1/video-recommend",
-    tags=["Video Recommendation"]
-)
-
 
 # Development/Debug endpoints
 if settings.DEBUG:
@@ -419,10 +419,10 @@ if __name__ == "__main__":
     import sys
 
     print(f"현재 작업 디렉터리: {os.getcwd()}")
-    
+
     # --no-reload 옵션 체크
     use_reload = settings.DEBUG and "--no-reload" not in sys.argv
-    
+
     uvicorn.run(
         "api.main:app",
         host=settings.API_HOST,

@@ -13,21 +13,21 @@ def extract_keywords(text: str, top_n: int = 6) -> List[str]:
     - 중복 제거 후 top_n 개 반환
     """
 
-    # 1. 태그 분리
+    # 1. 텍스트 내 쉼표(,) 또는 공백 기준으로 태그 분리
     base_tags = [tag.strip() for tag in text.replace(",", " ").split() if tag.strip()]
     keywords = []
 
-    # 2. 동물 태그 우선 식별
+    # 2. 고양이, 강아지 태그 분리 (우선 처리)
     pet_tags = [tag for tag in base_tags if tag in ["고양이", "강아지"]]
     other_tags = [tag for tag in base_tags if tag not in pet_tags]
 
-    # 3. 정보형 키워드 조합 템플릿
+    # 3. 정보형 키워드 조합 (ex: "강아지 주의사항", "고양이 구토")
     info_suffixes = ["구토", "이유", "주의사항", "증상", "첫날", "대처법", "브이로그"]
     for pet in pet_tags:
         for word in other_tags + info_suffixes:
             keywords.append(f"{pet} {word}")
 
-    # 4. 단일 태그 포함
+    # 4. 원본 태그도 단독 키워드로 포함
     keywords += base_tags
 
     # 5. KeyBERT 키워드 추출 (후순위)
