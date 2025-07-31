@@ -190,7 +190,6 @@ class RAGChatbot:
             print(f"  [콘텐츠 영역 탐색] 선택된 영역: <{content_area.name} class='{' '.join(content_area.get('class', []))}'>")
 
             chunks_from_page = []
-            # [수정] 제목(h2)과 본문(p, div) 위주로 정보를 수집합니다.
             for element in content_area.find_all(['h2', 'p', 'div'], recursive=True):
                 if isinstance(element, NavigableString): continue
                 text = element.get_text(separator=' ', strip=True)
@@ -263,7 +262,6 @@ class RAGChatbot:
 
 
     def _check_for_keyword_redirect(self, query: str) -> Dict[str, Any] | None:
-        """사용자 질문에 특정 키워드가 있는지 확인하고, 있다면 미리 정의된 기능 추천 응답을 생성합니다."""
         detected_actions = set()
         for keyword, actions in self.keyword_redirect_map.items():
             if keyword in query:
@@ -289,22 +287,19 @@ class RAGChatbot:
         return {
             "answer": "혹시 이런 기능들을 찾고 계신가요? 아래 버튼으로 빠르게 이동해 보세요.",
             "suggested_actions": action_details,
-            "predicted_questions": []  # 빠른 응답에서는 예상 질문을 비워둡니다.
+            "predicted_questions": []
         }
 
     def _hybrid_retrieve(self, query: str, n_results: int = 5, source_filter: str = None) -> str:
 
         if self.db_collection.count() == 0:
             return ""
-
-
         try:
             keywords = [keyword for keyword, score in self.kw_model.extract_keywords(query, top_n=5)]
             print(f"  [추출된 키워드] {keywords}")
         except Exception as e:
             print(f"🚨 KeyBERT 키워드 추출 중 오류 발생: {e}")
             keywords = []
-
 
         enhanced_query = query + " " + " ".join(keywords)
         print(f"  [강화된 검색어] {enhanced_query}")
