@@ -115,4 +115,5 @@ Thumbs.db
 CLAUDE.md
 
 # 💡 ChromaDB persistent data
+/api/chroma_data/
 /chroma_data/
