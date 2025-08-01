@@ -196,7 +196,9 @@ class RAGChatbot:
             print(f"  [콘텐츠 영역 탐색] 선택된 영역: <{content_area.name} class='{' '.join(content_area.get('class', []))}'>")
 
             chunks_from_page = []
+
             for element in content_area.find_all(['h2', 'h3', 'p', 'td', 'li']):
+
                 if isinstance(element, NavigableString): continue
                 text = element.get_text(separator=' ', strip=True)
                 if len(text.split()) > 3:
@@ -269,6 +271,7 @@ class RAGChatbot:
         for action_name in detected_actions:
             for func in self.site_functions:
                 if func['name'] == action_name:
+
                     action_details.append(
                         {"name": func['name'], "description": func['description'], "url": func['url']})
         if not action_details: return None
@@ -277,12 +280,14 @@ class RAGChatbot:
 
     def _hybrid_retrieve(self, query: str, n_results: int = 5, source_filter: str = None) -> str:
         if self.db_collection.count() == 0: return ""
+
         try:
             keywords = [keyword for keyword, score in self.kw_model.extract_keywords(query, top_n=5)]
             print(f"  [추출된 키워드] {keywords}")
         except Exception as e:
             print(f"🚨 KeyBERT 키워드 추출 중 오류 발생: {e}")
             keywords = []
+
         enhanced_query = query + " " + " ".join(keywords)
         print(f"  [강화된 검색어] {enhanced_query}")
 
