@@ -83,20 +83,10 @@ class EnhancedBehaviorAnalysisPredictor(BehaviorAnalysisPredictor):
             logger.error(f"Failed to load pose model: {str(e)}")
             raise
     
+    # 포즈 추정 통합 특징 추출
     def extract_features_with_pose(self, frame: np.ndarray, bbox: List[float], 
                                  pet_class: str, prev_bbox: Optional[List[float]] = None) -> np.ndarray:
-        """
-        Extract features using pose estimation.
-        
-        Args:
-            frame: Current frame
-            bbox: Current bounding box [x1, y1, x2, y2]
-            pet_class: Pet class (cat/dog)
-            prev_bbox: Previous frame's bounding box
-            
-        Returns:
-            Feature vector combining pose and motion features
-        """
+
         if not self.use_pose_estimation or self.pose_adapter is None:
             # Fallback to original bbox features
             return self.extract_features_from_bbox(frame, bbox, prev_bbox)

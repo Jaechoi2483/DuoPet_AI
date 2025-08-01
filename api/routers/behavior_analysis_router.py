@@ -82,7 +82,7 @@ class BehaviorAnalysisResult(BaseModel):
     pose_metrics: Optional[PoseMetrics] = Field(None, description="Pose-based quality metrics")
     temporal_analysis: Optional[TemporalAnalysis] = Field(None, description="Temporal behavior analysis")
 
-
+# API 엔드포인트 정의
 @router.post("/analyze", response_model=StandardResponse)
 async def analyze_behavior(
     background_tasks: BackgroundTasks,
@@ -90,15 +90,7 @@ async def analyze_behavior(
     pet_type: str = "dog",
     real_time: bool = False
 ):
-    """
-    Analyze pet behavior from video
-    
-    Uses YOLO for object detection and LSTM for temporal behavior analysis.
-    
-    - **video**: Video file (MP4, AVI, MOV)
-    - **pet_type**: Type of pet (dog/cat)
-    - **real_time**: Whether to process in real-time mode
-    """
+
     try:
         logger.info(f"Behavior analysis request for {pet_type}")
         

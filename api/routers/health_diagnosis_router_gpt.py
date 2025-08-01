@@ -134,6 +134,7 @@ async def analyze_health_from_images(
 
             return create_success_response(data={"results": analysis_result_json})
 
+    # 4. 에러 처리
     except httpx.HTTPStatusError as e:
         error_message = f"OpenAI API 에러: {e.response.text}"
         logger.error(error_message)
