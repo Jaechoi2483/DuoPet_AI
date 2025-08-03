@@ -9,22 +9,22 @@ from common.response import create_success_response, create_error_response, Stan
 from services.video_recommend.recommender import recommend_youtube_videos_from_db_tags
 from services.video_recommend.db_models.board_entity import BoardEntity
 
-# ✅ 추가된 부분: settings 불러오기 및 직접 Oracle 연결
+# 추가된 부분: settings 불러오기 및 직접 Oracle 연결
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from common.config import get_settings
 
 settings = get_settings()
 
-# ✅ service_name 방식으로 직접 URL 생성
+# service_name 방식으로 직접 URL 생성
 oracle_url = (
     f"oracle+oracledb://{settings.ORACLE_USER}:{settings.ORACLE_PASSWORD}"
     f"@{settings.ORACLE_HOST}:{settings.ORACLE_PORT}/?service_name={settings.ORACLE_SERVICE}"
 )
 
-print("🔍 최종 oracle_url:", oracle_url)  # 출력 확인용
+print("최종 oracle_url:", oracle_url)  # 출력 확인용
 
-# ✅ 엔진 및 세션 팩토리 생성
+# 엔진 및 세션 팩토리 생성
 engine = create_engine(oracle_url, echo=True)
 SessionLocal = sessionmaker(bind=engine)
 
@@ -42,20 +42,20 @@ def recommend_videos(request: VideoRecommendRequest):
     - tags 기반 KeyBERT 키워드 추출
     - YouTube API 검색
     """
-    db: Session = SessionLocal()  # ✅ get_db() 대신 직접 생성한 세션 사용
+    db: Session = SessionLocal()  # get_db() 대신 직접 생성한 세션 사용
     try:
         # 1. 게시글 조회
         content = db.query(BoardEntity).filter(BoardEntity.content_id == request.contentId).first()
-        print("✅ content 조회 완료")
+        print("content 조회 완료")
 
         # 2. 태그 접근
         try:
-            print("🔍 content.tags 접근 시도")
+            print("content.tags 접근 시도")
             tags = content.tags
-            print("📌 tags 값:", tags)
+            print("tags 값:", tags)
         except Exception as e:
             import traceback
-            print("❌ tags 접근 중 오류:", traceback.format_exc())
+            print("tags 접근 중 오류:", traceback.format_exc())
             raise e
 
         # 3. 추천 로직 실행
@@ -72,7 +72,7 @@ def recommend_videos(request: VideoRecommendRequest):
 
     except Exception as e:
         import traceback
-        print("🔥 추천 오류 발생:", traceback.format_exc())
+        print("추천 오류 발생:", traceback.format_exc())
         return create_error_response(
             error_code=ErrorCode.UNKNOWN_ERROR,
             message="추천 처리 중 오류 발생",

@@ -8,10 +8,10 @@ from dotenv import load_dotenv
 load_dotenv()
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-
+# 유튜브에서 키워드로 영상 검색 후 상세 정보 반환
 def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
     if not YOUTUBE_API_KEY:
-        print("❌ YouTube API 키가 설정되지 않았습니다.")
+        print("YouTube API 키가 설정되지 않았습니다.")
         return []
 
     # 1. search.list - videoId 리스트 추출
@@ -35,7 +35,7 @@ def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
             return []
 
     except Exception as e:
-        print(f"[❌ 검색 요청 실패] {e}")
+        print(f"[검색 요청 실패] {e}")
         return []
 
     # 2. videos.list - 상세 정보 조회
@@ -71,5 +71,5 @@ def search_youtube(keyword: str, max_results: int = 3) -> List[Dict]:
         return results
 
     except Exception as e:
-        print(f"[❌ 상세 요청 실패] {e}")
+        print(f"[상세 요청 실패] {e}")
         return []
